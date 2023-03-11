@@ -1,16 +1,18 @@
 use crate::parser;
 use anyhow::Result;
 use parser::{Dec, Expr, Lvalue, Op};
-use std::collections::{HashMap, HashSet, LinkedList};
-use std::fmt::Debug;
-use std::rc::Rc;
+use std::{
+    collections::{HashMap, HashSet, LinkedList},
+    fmt::{Debug, Display},
+    rc::Rc,
+};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum TypeError {
-    #[error("unsupported operand type(s) for {op:?}: {lty:?} and {rty:?}")]
+    #[error("unsupported operand type(s) for {op}: {lty} and {rty}")]
     UnsupportedOperandType { op: Op, lty: RcType, rty: RcType },
-    #[error("mismatched types: expected {expected:?}, found {found:?}")]
+    #[error("mismatched types: expected {expected}, found {found}")]
     MismatchedTypes { expected: RcType, found: RcType },
     #[error("{name} takes {expected} positional argument(s) but {found} were given")]
     MismatchedArgumentNum {
@@ -39,6 +41,12 @@ pub enum TypeError {
 #[derive(Clone, Debug)]
 pub struct RcType(Rc<Type>);
 
+impl Display for RcType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl From<Type> for RcType {
     fn from(value: Type) -> Self {
         Self(Rc::new(value))
@@ -65,10 +73,10 @@ impl RcType {
             Ok(())
         } else {
             match (&**self, &**expected) {
-                (Type::Array(_), Type::Nil)
-                | (Type::Rec(_), Type::Nil)
-                | (Type::Nil, Type::Rec(_))
-                | (Type::Nil, Type::Array(_)) => Ok(()),
+                (Type::Array { .. }, Type::Nil)
+                | (Type::Rec { .. }, Type::Nil)
+                | (Type::Nil, Type::Rec { .. })
+                | (Type::Nil, Type::Array { .. }) => Ok(()),
                 _ => Err(TypeError::MismatchedTypes {
                     expected: expected.clone(),
                     found: self.clone(),
@@ -78,34 +86,39 @@ impl RcType {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Unknown(String),
     Void,
     Integer,
     String,
     Nil,
-    Array(RcType),
-    Rec(HashMap<String, RcType>),
-    Fn { fields: Vec<RcType>, retty: RcType },
+    Array {
+        name: String,
+        ty: RcType,
+    },
+    Rec {
+        name: String,
+        fields: HashMap<String, RcType>,
+    },
+    Fn {
+        fields: Vec<RcType>,
+        retty: RcType,
+    },
 }
 
-impl std::fmt::Debug for Type {
+impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Self::Unknown(ty) => ty,
-                Self::Void => "void",
-                Self::Integer => "int",
-                Self::String => "string",
-                Self::Nil => "nil",
-                Self::Array(_) => "array",
-                Self::Rec(_) => "record",
-                Self::Fn { .. } => "function",
-            }
-        )
+        match self {
+            Self::Unknown(ty) => write!(f, "{}", ty),
+            Self::Void => write!(f, "void"),
+            Self::Integer => write!(f, "int"),
+            Self::String => write!(f, "string"),
+            Self::Nil => write!(f, "nil"),
+            Self::Fn { .. } => write!(f, "function"),
+            Self::Array { name, .. } => write!(f, "{}", name),
+            Self::Rec { name, .. } => write!(f, "{}", name),
+        }
     }
 }
 
@@ -189,18 +202,18 @@ impl Checker {
         match lvalue {
             Lvalue::Var(var) => Ok(self.venv.get_ok(var)?.clone()),
             Lvalue::Rec(var, field) => match &*self.resolve_lvalue(var, breakable)? {
-                Type::Rec(fields) => Ok(fields
+                Type::Rec { fields, .. } => Ok(fields
                     .get(field)
                     .ok_or_else(|| TypeError::NoSuchField(field.clone()))?
                     .clone()),
-                _ => Err(TypeError::NotRecord(format!("{:?}", var))),
+                _ => Err(TypeError::NotRecord(format!("{}", var))),
             },
             Lvalue::Idx(var, idx) => match &*self.resolve_lvalue(var, breakable)? {
-                Type::Array(ty) => {
+                Type::Array { ty, .. } => {
                     self.resolve(idx, breakable)?.expect(&self.int)?;
                     Ok(ty.clone())
                 }
-                _ => Err(TypeError::NotArray(format!("{:?}", var))),
+                _ => Err(TypeError::NotArray(format!("{}", var))),
             },
         }
     }
@@ -218,13 +231,18 @@ impl Checker {
                     name.clone(),
                     match ty {
                         parser::Type::Type(ty) => resolve(ty),
-                        parser::Type::Array(ty) => Type::Array(resolve(ty)).into(),
-                        parser::Type::Rec(fields) => Type::Rec(
-                            fields
+                        parser::Type::Array(ty) => Type::Array {
+                            name: name.clone(),
+                            ty: resolve(ty),
+                        }
+                        .into(),
+                        parser::Type::Rec(fields) => Type::Rec {
+                            name: name.clone(),
+                            fields: fields
                                 .iter()
                                 .map(|field| (field.name.clone(), resolve(&field.ty)))
                                 .collect(),
-                        )
+                        }
                         .into(),
                     },
                 );
@@ -263,12 +281,12 @@ impl Checker {
                     .ok_or_else(|| TypeError::NotDefined(ty.clone()))
             };
             match unsafe { Rc::get_mut_unchecked(&mut ty.0) } {
-                Type::Array(ref mut ty) => {
+                Type::Array { ref mut ty, .. } => {
                     if let Type::Unknown(t) = &**ty {
                         *ty = resolve(t)?;
                     }
                 }
-                Type::Rec(ref mut fields) => {
+                Type::Rec { ref mut fields, .. } => {
                     for ty in fields.values_mut() {
                         if let Type::Unknown(t) = &**ty {
                             *ty = resolve(t)?;
@@ -367,12 +385,12 @@ impl Checker {
                         Type::String,
                     )
                     | (_, Type::Integer, Type::Integer)
-                    | (Op::Ne | Op::Eq, Type::Array(_), Type::Array(_))
-                    | (Op::Ne | Op::Eq, Type::Array(_), Type::Nil)
-                    | (Op::Ne | Op::Eq, Type::Nil, Type::Array(_))
-                    | (Op::Ne | Op::Eq, Type::Rec(_), Type::Rec(_))
-                    | (Op::Ne | Op::Eq, Type::Rec(_), Type::Nil)
-                    | (Op::Ne | Op::Eq, Type::Nil, Type::Rec(_)) => Ok(self.int.clone()),
+                    | (Op::Ne | Op::Eq, Type::Array { .. }, Type::Array { .. })
+                    | (Op::Ne | Op::Eq, Type::Array { .. }, Type::Nil)
+                    | (Op::Ne | Op::Eq, Type::Nil, Type::Array { .. })
+                    | (Op::Ne | Op::Eq, Type::Rec { .. }, Type::Rec { .. })
+                    | (Op::Ne | Op::Eq, Type::Rec { .. }, Type::Nil)
+                    | (Op::Ne | Op::Eq, Type::Nil, Type::Rec { .. }) => Ok(self.int.clone()),
                     _ => Err(TypeError::UnsupportedOperandType { op: *op, lty, rty }),
                 }
             }
@@ -457,7 +475,7 @@ impl Checker {
             Expr::Rec { ty, fields } => {
                 let t = self.tenv.get_ok(ty)?.clone();
                 match &*t {
-                    Type::Rec(fs) => {
+                    Type::Rec { fields: fs, .. } => {
                         for (name, val) in fields {
                             self.resolve(val, breakable)?.expect(
                                 fs.get(name)
@@ -473,8 +491,8 @@ impl Checker {
                 self.resolve(n, breakable)?.expect(&self.int)?;
                 let t = self.tenv.get_ok(ty)?.clone();
                 match &*t {
-                    Type::Array(expected) => {
-                        self.resolve(v, breakable)?.expect(expected)?;
+                    Type::Array { ty, .. } => {
+                        self.resolve(v, breakable)?.expect(ty)?;
                         Ok(t)
                     }
                     _ => Err(TypeError::NotArray(ty.clone())),

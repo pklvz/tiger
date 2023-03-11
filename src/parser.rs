@@ -1,7 +1,7 @@
 use anyhow::Result;
 use pest::iterators::{Pair, Pairs};
 use pest::Parser;
-use std::collections::LinkedList;
+use std::{collections::LinkedList, fmt::Display};
 use thiserror::Error;
 
 #[derive(Parser)]
@@ -12,8 +12,6 @@ struct TigerParser;
 enum SyntaxError {
     #[error("incomplete expression")]
     IncompleteExpression,
-    #[error("invalid rule: {0:?}")]
-    InvalidRule(Rule),
     #[error("multiple expressions without delimiter")]
     MultipleExpressions,
 }
@@ -34,20 +32,36 @@ pub enum Op {
     Or,
 }
 
-#[derive(Debug)]
+impl Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Add => write!(f, "'+'"),
+            Self::Sub => write!(f, "'-'"),
+            Self::Mul => write!(f, "'*'"),
+            Self::Div => write!(f, "'/'"),
+            Self::Gt => write!(f, "'>'"),
+            Self::Ge => write!(f, "'>='"),
+            Self::Lt => write!(f, "'<'"),
+            Self::Le => write!(f, "'<='"),
+            Self::Ne => write!(f, "'!='"),
+            Self::Eq => write!(f, "'='"),
+            Self::And => write!(f, "'&'"),
+            Self::Or => write!(f, "'|'"),
+        }
+    }
+}
+
 pub struct Field {
     pub name: String,
     pub ty: String,
 }
 
-#[derive(Debug)]
 pub enum Type {
     Type(String),
     Array(String),
     Rec(Vec<Field>),
 }
 
-#[derive(Debug)]
 pub enum Dec {
     TyDec(String, Type),
     VarDec {
@@ -69,7 +83,7 @@ pub enum Lvalue {
     Idx(Box<Lvalue>, Box<Expr>),
 }
 
-impl std::fmt::Debug for Lvalue {
+impl Display for Lvalue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Lvalue::Var(var) => f.write_str(var),
@@ -86,7 +100,6 @@ impl std::fmt::Debug for Lvalue {
     }
 }
 
-#[derive(Debug)]
 pub enum Expr {
     BinOp {
         lhs: Box<Expr>,
@@ -384,7 +397,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 }
             }
             Rule::EOI => (),
-            rule => return Err(SyntaxError::InvalidRule(rule).into()),
+            _ => unreachable!(),
         }
     }
     while let Some(op) = ops.pop_back() {
