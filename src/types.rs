@@ -1,6 +1,5 @@
-use crate::parser;
+use crate::ast::{self, Dec, Expr, Lvalue, Op};
 use anyhow::Result;
-use parser::{Dec, Expr, Lvalue, Op};
 use std::{
     collections::{HashMap, HashSet, LinkedList},
     fmt::{Debug, Display},
@@ -230,13 +229,13 @@ impl Checker {
                 self.tenv.insert(
                     name.clone(),
                     match ty {
-                        parser::Type::Type(ty) => resolve(ty),
-                        parser::Type::Array(ty) => Type::Array {
+                        ast::Type::Type(ty) => resolve(ty),
+                        ast::Type::Array(ty) => Type::Array {
                             name: name.clone(),
                             ty: resolve(ty),
                         }
                         .into(),
-                        parser::Type::Rec(fields) => Type::Rec {
+                        ast::Type::Rec(fields) => Type::Rec {
                             name: name.clone(),
                             fields: fields
                                 .iter()

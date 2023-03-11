@@ -6,5 +6,6 @@
 extern crate pest_derive;
 extern crate test;
 
+pub mod ast;
 pub mod parser;
 pub mod types;
