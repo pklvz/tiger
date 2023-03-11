@@ -1,4 +1,7 @@
-use std::fmt::Display;
+use crate::parser::{parse_expr, parse_lvalue, Rule};
+use anyhow::Error;
+use pest::iterators::Pair;
+use std::{fmt::Display, ops::Deref};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Op {
@@ -35,36 +38,45 @@ impl Display for Op {
     }
 }
 
+impl Op {
+    pub(crate) fn with_pos(self, pair: Pair<Rule>) -> WithPos<Self> {
+        WithPos {
+            pos: pair.line_col().into(),
+            inner: self,
+        }
+    }
+}
+
 pub struct Field {
     pub name: String,
-    pub ty: String,
+    pub ty: WithPos<String>,
 }
 
 pub enum Type {
-    Type(String),
-    Array(String),
+    Type(WithPos<String>),
+    Array(WithPos<String>),
     Rec(Vec<Field>),
 }
 
 pub enum Dec {
-    TyDec(String, Type),
+    TyDec(String, WithPos<Type>),
     VarDec {
-        name: String,
-        ty: Option<String>,
-        val: Box<Expr>,
+        name: WithPos<String>,
+        ty: Option<WithPos<String>>,
+        val: Box<WithPos<Expr>>,
     },
     FnDec {
         name: String,
         fields: Vec<Field>,
-        retty: Option<String>,
-        body: Box<Expr>,
+        retty: Option<WithPos<String>>,
+        body: Box<WithPos<Expr>>,
     },
 }
 
 pub enum Lvalue {
-    Var(String),
-    Rec(Box<Lvalue>, String),
-    Idx(Box<Lvalue>, Box<Expr>),
+    Var(WithPos<String>),
+    Rec(Box<Lvalue>, WithPos<String>),
+    Idx(Box<Lvalue>, Box<WithPos<Expr>>),
 }
 
 impl Display for Lvalue {
@@ -88,31 +100,113 @@ pub enum Expr {
     BinOp {
         lhs: Box<Expr>,
         rhs: Box<Expr>,
-        op: Op,
+        op: WithPos<Op>,
     },
     Nil,
-    Neg(Box<Expr>),
+    Neg(Box<WithPos<Expr>>),
     Seq(Vec<Expr>),
     Integer(isize),
     String(String),
-    If(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
-    While(Box<Expr>, Box<Expr>),
-    For(String, Box<Expr>, Box<Expr>, Box<Expr>),
-    Break,
+    If(
+        Box<WithPos<Expr>>,
+        Box<WithPos<Expr>>,
+        Option<Box<WithPos<Expr>>>,
+    ),
+    While(Box<WithPos<Expr>>, Box<WithPos<Expr>>),
+    For(String, Box<WithPos<Expr>>, Box<WithPos<Expr>>, Box<Expr>),
+    Break(WithPos<()>),
     Let(Vec<Dec>, Box<Expr>),
     FnCall {
-        name: String,
-        args: Vec<Expr>,
+        name: WithPos<String>,
+        args: Vec<WithPos<Expr>>,
     },
     Rec {
-        ty: String,
-        fields: Vec<(String, Expr)>,
+        ty: WithPos<String>,
+        fields: Vec<(WithPos<String>, WithPos<Expr>)>,
     },
     Array {
-        ty: String,
-        n: Box<Expr>,
-        v: Box<Expr>,
+        ty: WithPos<String>,
+        n: Box<WithPos<Expr>>,
+        v: Box<WithPos<Expr>>,
     },
-    Assign(Lvalue, Box<Expr>),
-    Lvalue(Lvalue),
+    Assign(WithPos<Lvalue>, Box<WithPos<Expr>>),
+    Lvalue(WithPos<Lvalue>),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Pos(usize, usize);
+
+impl From<(usize, usize)> for Pos {
+    fn from(value: (usize, usize)) -> Self {
+        Self(value.0, value.1)
+    }
+}
+
+impl Display for Pos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.0, self.1 + 1)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WithPos<T> {
+    pub pos: Pos,
+    pub inner: T,
+}
+
+impl<T> Deref for WithPos<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T: PartialEq> PartialEq for WithPos<T> {
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
+
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl From<Pair<'_, Rule>> for WithPos<String> {
+    fn from(value: Pair<Rule>) -> Self {
+        WithPos {
+            pos: value.line_col().into(),
+            inner: value.as_str().into(),
+        }
+    }
+}
+
+impl TryFrom<Pair<'_, Rule>> for WithPos<Expr> {
+    type Error = Error;
+
+    fn try_from(value: Pair<Rule>) -> Result<Self, Self::Error> {
+        Ok(WithPos {
+            pos: value.line_col().into(),
+            inner: parse_expr(value.into_inner())?,
+        })
+    }
+}
+
+impl TryFrom<Pair<'_, Rule>> for WithPos<Lvalue> {
+    type Error = Error;
+
+    fn try_from(value: Pair<'_, Rule>) -> Result<Self, Self::Error> {
+        Ok(WithPos {
+            pos: value.line_col().into(),
+            inner: parse_lvalue(value)?,
+        })
+    }
+}
+
+impl TryFrom<Pair<'_, Rule>> for Box<WithPos<Expr>> {
+    type Error = Error;
+
+    fn try_from(value: Pair<Rule>) -> Result<Self, Self::Error> {
+        Ok(Box::new(value.try_into()?))
+    }
 }

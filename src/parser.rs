@@ -1,34 +1,26 @@
-use crate::ast::{Dec, Expr, Field, Lvalue, Op, Type};
+use crate::ast::{Dec, Expr, Field, Lvalue, Op, Type, WithPos};
 use anyhow::Result;
-use pest::iterators::{Pair, Pairs};
-use pest::Parser;
-use std::collections::LinkedList;
-use thiserror::Error;
+use pest::{
+    iterators::{Pair, Pairs},
+    Parser,
+};
+use std::{collections::LinkedList, ops::Deref};
 
 #[derive(Parser)]
 #[grammar = "tiger.pest"]
 struct TigerParser;
 
-#[derive(Error, Debug)]
-enum SyntaxError {
-    #[error("incomplete expression")]
-    IncompleteExpression,
-    #[error("multiple expressions without delimiter")]
-    MultipleExpressions,
-}
-
-fn apply(op: Op, exprs: &mut LinkedList<Expr>) -> Result<()> {
-    let rhs = exprs.pop_back().ok_or(SyntaxError::IncompleteExpression)?;
-    let lhs = exprs.pop_back().ok_or(SyntaxError::IncompleteExpression)?;
+fn apply(op: WithPos<Op>, exprs: &mut LinkedList<Expr>) {
+    let rhs = exprs.pop_back().unwrap();
+    let lhs = exprs.pop_back().unwrap();
     exprs.push_back(Expr::BinOp {
         lhs: lhs.into(),
         rhs: rhs.into(),
         op,
     });
-    Ok(())
 }
 
-fn rule_to_op(rule: Rule) -> Op {
+fn to_op(rule: Rule) -> Op {
     match rule {
         Rule::add => Op::Add,
         Rule::sub => Op::Sub,
@@ -52,25 +44,22 @@ fn parse_fields(pair: Pair<Rule>) -> Vec<Field> {
     while let Some(field) = pairs.next() {
         fields.push(Field {
             name: field.as_str().into(),
-            ty: pairs.next().unwrap().as_str().into(),
+            ty: pairs.next().unwrap().into(),
         });
     }
     fields
 }
 
-fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue> {
+pub(crate) fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue> {
     let mut pairs = pair.into_inner();
-    let mut lvalue = Lvalue::Var(pairs.next().unwrap().as_str().into());
+    let mut lvalue = Lvalue::Var(pairs.next().unwrap().into());
     for suffix in pairs {
         match suffix.as_rule() {
             Rule::lvaluefield => {
-                lvalue = Lvalue::Rec(
-                    lvalue.into(),
-                    suffix.into_inner().next().unwrap().as_str().into(),
-                );
+                lvalue = Lvalue::Rec(lvalue.into(), suffix.into_inner().next().unwrap().into());
             }
             Rule::lvalueidx => {
-                lvalue = Lvalue::Idx(lvalue.into(), parse_expr(suffix.into_inner())?.into());
+                lvalue = Lvalue::Idx(lvalue.into(), suffix.try_into()?);
             }
             _ => unreachable!(),
         }
@@ -78,54 +67,55 @@ fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue> {
     Ok(lvalue)
 }
 
-fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
+pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
     let mut exprs = LinkedList::new();
     let mut ops = LinkedList::new();
     for pair in pairs {
         match pair.as_rule() {
             Rule::opexp => exprs.push_back(parse_expr(pair.into_inner())?),
             rule @ (Rule::mul | Rule::div) => {
-                while let Some(Op::Mul | Op::Div) = ops.back() {
-                    apply(ops.pop_back().unwrap(), &mut exprs)?;
+                while let Some(Op::Mul | Op::Div) = ops.back().map(Deref::deref) {
+                    apply(ops.pop_back().unwrap(), &mut exprs);
                 }
-                ops.push_back(rule_to_op(rule));
+                ops.push_back(to_op(rule).with_pos(pair));
             }
             rule @ (Rule::add | Rule::sub) => {
-                while let Some(Op::Add | Op::Sub | Op::Mul | Op::Div) = ops.back() {
-                    apply(ops.pop_back().unwrap(), &mut exprs)?;
+                while let Some(Op::Add | Op::Sub | Op::Mul | Op::Div) = ops.back().map(Deref::deref)
+                {
+                    apply(ops.pop_back().unwrap(), &mut exprs);
                 }
-                ops.push_back(rule_to_op(rule));
+                ops.push_back(to_op(rule).with_pos(pair));
             }
             rule @ (Rule::gt | Rule::ge | Rule::lt | Rule::le | Rule::ne | Rule::eq) => {
                 loop {
-                    match ops.back() {
+                    match ops.back().map(Deref::deref) {
                         Some(Op::And | Op::Or) | None => break,
-                        _ => apply(ops.pop_back().unwrap(), &mut exprs)?,
+                        _ => apply(ops.pop_back().unwrap(), &mut exprs),
                     }
                 }
-                ops.push_back(rule_to_op(rule));
+                ops.push_back(to_op(rule).with_pos(pair));
             }
             rule @ Rule::and => {
                 loop {
-                    match ops.back() {
+                    match ops.back().map(Deref::deref) {
                         Some(Op::Or) | None => break,
-                        _ => apply(ops.pop_back().unwrap(), &mut exprs)?,
+                        _ => apply(ops.pop_back().unwrap(), &mut exprs),
                     }
                 }
-                ops.push_back(rule_to_op(rule));
+                ops.push_back(to_op(rule).with_pos(pair));
             }
             rule @ Rule::or => {
                 while let Some(op) = ops.pop_back() {
-                    apply(op, &mut exprs)?;
+                    apply(op, &mut exprs);
                 }
-                ops.push_back(rule_to_op(rule));
+                ops.push_back(to_op(rule).with_pos(pair));
             }
-            Rule::lvalue => exprs.push_back(Expr::Lvalue(parse_lvalue(pair)?)),
+            Rule::lvalue => exprs.push_back(Expr::Lvalue(pair.try_into()?)),
             Rule::nil => exprs.push_back(Expr::Nil),
             Rule::seq => {
                 exprs.push_back(Expr::Seq(
                     pair.into_inner()
-                        .map(|pairs| parse_expr(pairs.into_inner()))
+                        .map(|pair| parse_expr(pair.into_inner()))
                         .try_collect()?,
                 ));
             }
@@ -133,27 +123,22 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 Some(s) => -s.trim().parse()?,
                 None => pair.as_str().trim().parse()?,
             })),
-            Rule::neg => exprs.push_back(Expr::Neg(parse_expr(pair.into_inner())?.into())),
+            Rule::neg => exprs.push_back(Expr::Neg(pair.try_into()?)),
             Rule::string => exprs.push_back(Expr::String(serde_json::from_str(pair.as_str())?)),
             Rule::fncall => {
                 let mut pairs = pair.into_inner();
-                let name = pairs.next().unwrap().as_str();
+                let name = pairs.next().unwrap();
                 exprs.push_back(Expr::FnCall {
                     name: name.into(),
-                    args: pairs
-                        .map(|pairs| parse_expr(pairs.into_inner()))
-                        .try_collect()?,
+                    args: pairs.map(|pair| pair.try_into()).try_collect()?,
                 });
             }
             Rule::rec => {
                 let mut pairs = pair.into_inner();
-                let ty = pairs.next().unwrap().as_str();
+                let ty = pairs.next().unwrap();
                 let mut fields = Vec::new();
                 while let Some(field) = pairs.next() {
-                    fields.push((
-                        field.as_str().into(),
-                        parse_expr(pairs.next().unwrap().into_inner())?,
-                    ));
+                    fields.push((field.into(), pairs.next().unwrap().try_into()?));
                 }
                 exprs.push_back(Expr::Rec {
                     ty: ty.into(),
@@ -163,26 +148,26 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             Rule::array => {
                 let mut pairs = pair.into_inner();
                 exprs.push_back(Expr::Array {
-                    ty: pairs.next().unwrap().as_str().into(),
-                    n: parse_expr(pairs.next().unwrap().into_inner())?.into(),
-                    v: parse_expr(pairs.next().unwrap().into_inner())?.into(),
+                    ty: pairs.next().unwrap().into(),
+                    n: pairs.next().unwrap().try_into()?,
+                    v: pairs.next().unwrap().try_into()?,
                 });
             }
             Rule::assign => {
                 let mut pairs = pair.into_inner();
                 exprs.push_back(Expr::Assign(
-                    parse_lvalue(pairs.next().unwrap())?,
-                    parse_expr(pairs.next().unwrap().into_inner())?.into(),
+                    pairs.next().unwrap().try_into()?,
+                    pairs.next().unwrap().try_into()?,
                 ));
             }
             Rule::r#if => {
                 let mut pairs = pair.into_inner();
                 exprs.push_back(Expr::If(
-                    parse_expr(pairs.next().unwrap().into_inner())?.into(),
-                    parse_expr(pairs.next().unwrap().into_inner())?.into(),
+                    pairs.next().unwrap().try_into()?,
+                    pairs.next().unwrap().try_into()?,
                     pairs
                         .next()
-                        .map(|pair| parse_expr(pair.into_inner()))
+                        .map(TryInto::try_into)
                         .transpose()?
                         .map(Box::new),
                 ));
@@ -190,20 +175,23 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
             Rule::r#while => {
                 let mut pairs = pair.into_inner();
                 exprs.push_back(Expr::While(
-                    parse_expr(pairs.next().unwrap().into_inner())?.into(),
-                    parse_expr(pairs.next().unwrap().into_inner())?.into(),
+                    pairs.next().unwrap().try_into()?,
+                    pairs.next().unwrap().try_into()?,
                 ));
             }
             Rule::r#for => {
                 let mut pairs = pair.into_inner();
                 exprs.push_back(Expr::For(
                     pairs.next().unwrap().as_str().into(),
-                    parse_expr(pairs.next().unwrap().into_inner())?.into(),
-                    parse_expr(pairs.next().unwrap().into_inner())?.into(),
+                    pairs.next().unwrap().try_into()?,
+                    pairs.next().unwrap().try_into()?,
                     parse_expr(pairs.next().unwrap().into_inner())?.into(),
                 ));
             }
-            Rule::r#break => exprs.push_back(Expr::Break),
+            Rule::r#break => exprs.push_back(Expr::Break(WithPos {
+                pos: pair.line_col().into(),
+                inner: (),
+            })),
             Rule::r#let => {
                 let mut decs = Vec::new();
                 let mut pairs = pair.into_inner().peekable();
@@ -213,7 +201,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                             decs,
                             Expr::Seq(
                                 pair.into_inner()
-                                    .map(|pairs| parse_expr(pairs.into_inner()))
+                                    .map(|pair| parse_expr(pair.into_inner()))
                                     .try_collect()?,
                             )
                             .into(),
@@ -225,32 +213,37 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                             let mut pairs = pair.into_inner();
                             let ident = pairs.next().unwrap().as_str().into();
                             let ty = pairs.next().unwrap();
-                            let ty = match ty.as_rule() {
-                                Rule::arraydec => {
-                                    Type::Array(ty.into_inner().next().unwrap().as_str().into())
-                                }
-                                Rule::recdec => {
-                                    Type::Rec(parse_fields(ty.into_inner().next().unwrap()))
-                                }
-                                Rule::ident => Type::Type(ty.as_str().into()),
-                                _ => unreachable!(),
-                            };
-                            decs.push(Dec::TyDec(ident, ty));
+                            decs.push(Dec::TyDec(
+                                ident,
+                                WithPos {
+                                    pos: ty.line_col().into(),
+                                    inner: match ty.as_rule() {
+                                        Rule::arraydec => {
+                                            Type::Array(ty.into_inner().next().unwrap().into())
+                                        }
+                                        Rule::recdec => {
+                                            Type::Rec(parse_fields(ty.into_inner().next().unwrap()))
+                                        }
+                                        Rule::ident => Type::Type(ty.into()),
+                                        _ => unreachable!(),
+                                    },
+                                },
+                            ));
                         }
                         Rule::vardec => {
                             let mut pairs = pair.into_inner();
-                            let name = pairs.next().unwrap().as_str();
+                            let name = pairs.next().unwrap();
                             let pair = pairs.next().unwrap();
                             match pair.as_rule() {
                                 Rule::ident => decs.push(Dec::VarDec {
                                     name: name.into(),
-                                    ty: Some(pair.as_str().into()),
-                                    val: parse_expr(pairs.next().unwrap().into_inner())?.into(),
+                                    ty: Some(pair.into()),
+                                    val: pairs.next().unwrap().try_into()?,
                                 }),
                                 Rule::opexp => decs.push(Dec::VarDec {
                                     name: name.into(),
                                     ty: None,
-                                    val: parse_expr(pair.into_inner())?.into(),
+                                    val: pair.try_into()?,
                                 }),
                                 _ => unreachable!(),
                             }
@@ -263,14 +256,14 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                             match pair.as_rule() {
                                 Rule::ident => decs.push(Dec::FnDec {
                                     name: name.into(),
-                                    retty: Some(pair.as_str().into()),
-                                    body: parse_expr(pairs.next().unwrap().into_inner())?.into(),
+                                    retty: Some(pair.into()),
+                                    body: pairs.next().unwrap().try_into()?,
                                     fields,
                                 }),
                                 Rule::opexp => decs.push(Dec::FnDec {
                                     name: name.into(),
                                     retty: None,
-                                    body: parse_expr(pair.into_inner())?.into(),
+                                    body: pair.try_into()?,
                                     fields,
                                 }),
                                 _ => unreachable!(),
@@ -285,12 +278,12 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
         }
     }
     while let Some(op) = ops.pop_back() {
-        apply(op, &mut exprs)?;
+        apply(op, &mut exprs);
     }
-    if exprs.len() != 1 {
-        return Err(SyntaxError::MultipleExpressions.into());
+    match exprs.pop_back() {
+        Some(expr) if exprs.is_empty() => Ok(expr),
+        _ => unreachable!(),
     }
-    Ok(exprs.into_iter().next().unwrap())
 }
 
 pub fn parse(src: &str) -> Result<Expr> {
