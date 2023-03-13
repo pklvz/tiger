@@ -75,8 +75,8 @@ pub enum Dec {
 
 pub enum Lvalue {
     Var(WithPos<String>),
-    Rec(Box<Lvalue>, WithPos<String>),
-    Idx(Box<Lvalue>, Box<WithPos<Expr>>),
+    Rec(Box<Self>, WithPos<String>),
+    Idx(Box<Self>, Box<WithPos<Expr>>),
 }
 
 impl Display for Lvalue {
@@ -98,38 +98,38 @@ impl Display for Lvalue {
 
 pub enum Expr {
     BinOp {
-        lhs: Box<Expr>,
-        rhs: Box<Expr>,
+        lhs: Box<Self>,
+        rhs: Box<Self>,
         op: WithPos<Op>,
     },
     Nil,
-    Neg(Box<WithPos<Expr>>),
-    Seq(Vec<Expr>),
+    Neg(Box<WithPos<Self>>),
+    Seq(Vec<Self>),
     Integer(isize),
     String(String),
     If(
-        Box<WithPos<Expr>>,
-        Box<WithPos<Expr>>,
-        Option<Box<WithPos<Expr>>>,
+        Box<WithPos<Self>>,
+        Box<WithPos<Self>>,
+        Option<Box<WithPos<Self>>>,
     ),
-    While(Box<WithPos<Expr>>, Box<WithPos<Expr>>),
-    For(String, Box<WithPos<Expr>>, Box<WithPos<Expr>>, Box<Expr>),
+    While(Box<WithPos<Self>>, Box<WithPos<Self>>),
+    For(String, Box<WithPos<Self>>, Box<WithPos<Self>>, Box<Self>),
     Break(WithPos<()>),
-    Let(Vec<Dec>, Box<Expr>),
+    Let(Vec<Dec>, Box<Self>),
     FnCall {
         name: WithPos<String>,
-        args: Vec<WithPos<Expr>>,
+        args: Vec<WithPos<Self>>,
     },
     Rec {
         ty: WithPos<String>,
-        fields: Vec<(WithPos<String>, WithPos<Expr>)>,
+        fields: Vec<(WithPos<String>, WithPos<Self>)>,
     },
     Array {
         ty: WithPos<String>,
-        n: Box<WithPos<Expr>>,
-        v: Box<WithPos<Expr>>,
+        n: Box<WithPos<Self>>,
+        v: Box<WithPos<Self>>,
     },
-    Assign(WithPos<Lvalue>, Box<WithPos<Expr>>),
+    Assign(WithPos<Lvalue>, Box<WithPos<Self>>),
     Lvalue(WithPos<Lvalue>),
 }
 

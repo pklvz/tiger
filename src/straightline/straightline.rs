@@ -12,12 +12,12 @@ pub enum BinOp {
 pub enum Exp {
     Id(String),
     Num(isize),
-    Op(Box<Exp>, BinOp, Box<Exp>),
-    Eseq(Box<Stm>, Box<Exp>),
+    Op(Box<Self>, BinOp, Box<Self>),
+    Eseq(Box<Stm>, Box<Self>),
 }
 
 pub enum Stm {
-    Compound(Box<Stm>, Box<Stm>),
+    Compound(Box<Self>, Box<Self>),
     Assign { id: String, exp: Exp },
     Print(Vec<Exp>),
 }
