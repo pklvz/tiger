@@ -306,7 +306,8 @@ mod tests {
     fn test_samples() -> Result<()> {
         for sample in fs::read_dir("samples")? {
             let sample = sample?;
-            let result = parse(&fs::read_to_string(sample.path())?);
+            let src = fs::read_to_string(sample.path())?;
+            let result = parse(&src);
             if sample.file_name() == "test49.tig" {
                 assert!(result.is_err());
             } else if let Err(error) = result {
