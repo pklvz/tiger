@@ -1,6 +1,6 @@
 # tiger
 
-[Tiger language](https://www.cs.princeton.edu/~appel/modern/c/) compiler front-end ([pest](https://github.com/pest-parser/pest) based parser and type checker) implemented in Rust. Test cases are downloaded from <https://www.cs.princeton.edu/~appel/modern/testcases/>.
+[Tiger language](https://www.cs.princeton.edu/~appel/modern/c/) interpreter implemented in Rust. Test cases are downloaded from <https://www.cs.princeton.edu/~appel/modern/testcases/>.
 
 ## Deviations
 

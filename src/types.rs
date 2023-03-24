@@ -1,7 +1,10 @@
-use crate::ast::{self, Dec, Expr, Lvalue, Op, Pos, WithPos};
+use crate::{
+    ast::{self, Dec, Expr, Lvalue, Op, Pos, WithPos},
+    env::Env,
+};
 use anyhow::Result;
 use std::{
-    collections::{HashMap, HashSet, LinkedList},
+    collections::{HashMap, HashSet},
     fmt::{Debug, Display},
     rc::Rc,
 };
@@ -128,36 +131,9 @@ impl Display for Type {
     }
 }
 
-#[derive(Default)]
-struct Env(HashMap<String, LinkedList<RcType>>);
-
-impl Env {
-    fn insert(&mut self, name: String, ty: RcType) {
-        self.0.entry(name).or_default().push_front(ty);
-    }
-
-    fn remove(&mut self, name: &String) -> Option<RcType> {
-        let tys = self.0.get_mut(name)?;
-        let ty = tys.pop_front().unwrap();
-        if tys.is_empty() {
-            self.0.remove(name);
-        }
-        Some(ty)
-    }
-
-    fn get(&self, name: &String) -> Option<&RcType> {
-        self.0.get(name).map(|tys| tys.front().unwrap())
-    }
-
-    fn get_ok(&self, name: &WithPos<String>) -> Result<&RcType, TypeError> {
-        self.get(&**name)
-            .ok_or_else(|| TypeError::NotDefined(name.clone()))
-    }
-}
-
 struct Checker {
-    tenv: Env,
-    venv: Env,
+    tenv: Env<RcType>,
+    venv: Env<RcType>,
     int: RcType,
     string: RcType,
     nil: RcType,
@@ -167,8 +143,8 @@ struct Checker {
 impl Checker {
     fn new() -> Self {
         let mut c = Self {
-            tenv: Env::default(),
-            venv: Env::default(),
+            tenv: Env::new(),
+            venv: Env::new(),
             int: Type::Integer.into(),
             string: Type::String.into(),
             nil: Type::Nil.into(),
@@ -211,7 +187,11 @@ impl Checker {
         breakable: bool,
     ) -> Result<RcType, TypeError> {
         match lvalue {
-            Lvalue::Var(var) => Ok(self.venv.get_ok(var)?.clone()),
+            Lvalue::Var(var) => Ok(self
+                .venv
+                .get(var)
+                .ok_or_else(|| TypeError::NotDefined(var.clone()))?
+                .clone()),
             Lvalue::Rec(var, field) => match &*self.resolve_lvalue(var, pos, breakable)? {
                 Type::Rec { fields, .. } => Ok(fields
                     .get(&**field)
@@ -329,7 +309,10 @@ impl Checker {
                     let found = self.resolve_with_pos(val, breakable)?;
                     match ty {
                         Some(ty) => {
-                            let expected = self.tenv.get_ok(ty)?;
+                            let expected = self
+                                .tenv
+                                .get(ty)
+                                .ok_or_else(|| TypeError::NotDefined(ty.clone()))?;
                             found.expect(expected)?;
                             self.venv.insert(name.inner.clone(), expected.clone());
                         }
@@ -353,10 +336,19 @@ impl Checker {
                         Type::Fn {
                             fields: fields
                                 .iter()
-                                .map(|field| self.tenv.get_ok(&field.ty).cloned())
+                                .map(|field| {
+                                    self.tenv
+                                        .get(&field.ty)
+                                        .ok_or_else(|| TypeError::NotDefined(field.ty.clone()))
+                                        .cloned()
+                                })
                                 .try_collect()?,
                             retty: match retty {
-                                Some(retty) => self.tenv.get_ok(retty)?.clone(),
+                                Some(retty) => self
+                                    .tenv
+                                    .get(retty)
+                                    .ok_or_else(|| TypeError::NotDefined(retty.clone()))?
+                                    .clone(),
                                 None => self.void.clone(),
                             },
                         }
@@ -379,11 +371,19 @@ impl Checker {
             } = dec
             {
                 for field in fields {
-                    self.venv
-                        .insert(field.name.clone(), self.tenv.get_ok(&field.ty)?.clone());
+                    self.venv.insert(
+                        field.name.clone(),
+                        self.tenv
+                            .get(&field.ty)
+                            .ok_or_else(|| TypeError::NotDefined(field.ty.clone()))?
+                            .clone(),
+                    );
                 }
                 self.resolve_with_pos(body, false)?.expect(match retty {
-                    Some(retty) => self.tenv.get_ok(retty)?,
+                    Some(retty) => self
+                        .tenv
+                        .get(retty)
+                        .ok_or_else(|| TypeError::NotDefined(retty.clone()))?,
                     None => &self.void,
                 })?;
                 for field in fields {
@@ -475,7 +475,11 @@ impl Checker {
                 self.resolve(expr, breakable)
             }
             Expr::FnCall { name, args } => {
-                let ty = self.venv.get_ok(name)?.clone();
+                let ty = self
+                    .venv
+                    .get(name)
+                    .ok_or_else(|| TypeError::NotDefined(name.clone()))?
+                    .clone();
                 match &*ty {
                     Type::Fn { fields, retty } => {
                         if fields.len() != args.len() {
@@ -494,7 +498,11 @@ impl Checker {
                 }
             }
             Expr::Rec { ty, fields } => {
-                let t = self.tenv.get_ok(ty)?.clone();
+                let t = self
+                    .tenv
+                    .get(ty)
+                    .ok_or_else(|| TypeError::NotDefined(ty.clone()))?
+                    .clone();
                 match &*t {
                     Type::Rec { fields: fs, .. } => {
                         for (name, val) in fields {
@@ -510,7 +518,11 @@ impl Checker {
             }
             Expr::Array { ty, n, v } => {
                 self.resolve_with_pos(n, breakable)?.expect(&self.int)?;
-                let t = self.tenv.get_ok(ty)?.clone();
+                let t = self
+                    .tenv
+                    .get(ty)
+                    .ok_or_else(|| TypeError::NotDefined(ty.clone()))?
+                    .clone();
                 match &*t {
                     Type::Array { ty, .. } => {
                         self.resolve_with_pos(v, breakable)?.expect(ty)?;

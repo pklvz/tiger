@@ -3,7 +3,7 @@ use anyhow::Error;
 use pest::iterators::Pair;
 use std::{fmt::Display, ops::Deref};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     Add,
     Sub,
@@ -47,17 +47,20 @@ impl Op {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Field {
     pub name: String,
     pub ty: WithPos<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Type(WithPos<String>),
     Array(WithPos<String>),
     Rec(Vec<Field>),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Dec {
     TyDec(String, WithPos<Type>),
     VarDec {
@@ -73,6 +76,7 @@ pub enum Dec {
     },
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Lvalue {
     Var(WithPos<String>),
     Rec(Box<Self>, WithPos<String>),
@@ -96,6 +100,7 @@ impl Display for Lvalue {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     BinOp {
         lhs: Box<Self>,
@@ -152,6 +157,15 @@ impl Display for Pos {
 pub struct WithPos<T> {
     pub pos: Pos,
     pub inner: T,
+}
+
+impl<T> WithPos<T> {
+    pub fn with_inner<P>(&self, inner: P) -> WithPos<P> {
+        WithPos {
+            pos: self.pos,
+            inner,
+        }
+    }
 }
 
 impl<T> Deref for WithPos<T> {
