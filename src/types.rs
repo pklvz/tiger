@@ -129,14 +129,14 @@ impl Display for Type {
 }
 
 #[derive(Default)]
-struct Env<'a>(HashMap<&'a str, LinkedList<RcType>>);
+struct Env(HashMap<String, LinkedList<RcType>>);
 
-impl<'a> Env<'a> {
-    fn insert(&mut self, name: &'a str, ty: RcType) {
+impl Env {
+    fn insert(&mut self, name: String, ty: RcType) {
         self.0.entry(name).or_default().push_front(ty);
     }
 
-    fn remove(&mut self, name: &str) -> Option<RcType> {
+    fn remove(&mut self, name: &String) -> Option<RcType> {
         let tys = self.0.get_mut(name)?;
         let ty = tys.pop_front().unwrap();
         if tys.is_empty() {
@@ -145,30 +145,26 @@ impl<'a> Env<'a> {
         Some(ty)
     }
 
-    fn get(&self, name: &str) -> Option<&RcType> {
+    fn get(&self, name: &String) -> Option<&RcType> {
         self.0.get(name).map(|tys| tys.front().unwrap())
     }
 
-    fn get_ok(&self, name: &WithPos<&str>) -> Result<&RcType, TypeError> {
-        self.get(&**name).ok_or_else(|| {
-            TypeError::NotDefined(WithPos {
-                pos: name.pos,
-                inner: name.inner.into(),
-            })
-        })
+    fn get_ok(&self, name: &WithPos<String>) -> Result<&RcType, TypeError> {
+        self.get(&**name)
+            .ok_or_else(|| TypeError::NotDefined(name.clone()))
     }
 }
 
-struct Checker<'a> {
-    tenv: Env<'a>,
-    venv: Env<'a>,
+struct Checker {
+    tenv: Env,
+    venv: Env,
     int: RcType,
     string: RcType,
     nil: RcType,
     void: RcType,
 }
 
-impl<'a> Checker<'a> {
+impl Checker {
     fn new() -> Self {
         let mut c = Self {
             tenv: Env::default(),
@@ -210,7 +206,7 @@ impl<'a> Checker<'a> {
 
     fn resolve_lvalue(
         &mut self,
-        lvalue: &Lvalue<'a>,
+        lvalue: &Lvalue,
         pos: Pos,
         breakable: bool,
     ) -> Result<RcType, TypeError> {
@@ -218,8 +214,8 @@ impl<'a> Checker<'a> {
             Lvalue::Var(var) => Ok(self.venv.get_ok(var)?.clone()),
             Lvalue::Rec(var, field) => match &*self.resolve_lvalue(var, pos, breakable)? {
                 Type::Rec { fields, .. } => Ok(fields
-                    .get(**field)
-                    .ok_or_else(|| TypeError::NoSuchField(field.into()))?
+                    .get(&**field)
+                    .ok_or_else(|| TypeError::NoSuchField(field.clone()))?
                     .clone()),
                 _ => Err(TypeError::NotRecord(WithPos {
                     inner: format!("{}", var),
@@ -239,29 +235,29 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn try_resolve_tydec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), TypeError> {
+    fn try_resolve_tydec(&mut self, decs: &Vec<Dec>) -> Result<(), TypeError> {
         for dec in decs {
             if let Dec::TyDec(name, ty) = dec {
-                let resolve = |ty: &WithPos<&str>| {
+                let resolve = |ty: &WithPos<String>| {
                     self.tenv
                         .get(ty)
                         .cloned()
-                        .unwrap_or_else(|| Type::Unknown(ty.into()).into())
+                        .unwrap_or_else(|| Type::Unknown(ty.clone()).into())
                 };
                 self.tenv.insert(
                     name.clone(),
                     match &**ty {
                         ast::Type::Type(ty) => resolve(ty),
                         ast::Type::Array(ty) => Type::Array {
-                            name: name.to_string(),
+                            name: name.clone(),
                             ty: resolve(ty),
                         }
                         .into(),
                         ast::Type::Rec(fields) => Type::Rec {
-                            name: name.to_string(),
+                            name: name.clone(),
                             fields: fields
                                 .iter()
-                                .map(|field| (field.name.into(), resolve(&field.ty)))
+                                .map(|field| (field.name.clone(), resolve(&field.ty)))
                                 .collect(),
                         }
                         .into(),
@@ -326,7 +322,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve_vardec(&mut self, decs: &Vec<Dec<'a>>, breakable: bool) -> Result<(), TypeError> {
+    fn resolve_vardec(&mut self, decs: &Vec<Dec>, breakable: bool) -> Result<(), TypeError> {
         for dec in decs {
             match dec {
                 Dec::VarDec { name, ty, val } => {
@@ -339,7 +335,7 @@ impl<'a> Checker<'a> {
                         }
                         _ => {
                             if *found.inner == Type::Nil {
-                                return Err(TypeError::UnknownType(name.into()));
+                                return Err(TypeError::UnknownType(name.clone()));
                             } else {
                                 self.venv.insert(name.inner.clone(), found.inner);
                             }
@@ -373,7 +369,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve_fn_body(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), TypeError> {
+    fn resolve_fn_body(&mut self, decs: &Vec<Dec>) -> Result<(), TypeError> {
         for dec in decs {
             if let Dec::FnDec {
                 fields,
@@ -398,7 +394,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve(&mut self, expr: &Expr<'a>, breakable: bool) -> Result<RcType, TypeError> {
+    fn resolve(&mut self, expr: &Expr, breakable: bool) -> Result<RcType, TypeError> {
         match expr {
             Expr::BinOp { lhs, op, rhs } => {
                 let lty = self.resolve(lhs, breakable)?;
@@ -484,7 +480,7 @@ impl<'a> Checker<'a> {
                     Type::Fn { fields, retty } => {
                         if fields.len() != args.len() {
                             return Err(TypeError::MismatchedArgumentNum {
-                                name: name.into(),
+                                name: name.clone(),
                                 expected: fields.len(),
                                 found: args.len(),
                             });
@@ -494,7 +490,7 @@ impl<'a> Checker<'a> {
                         }
                         Ok(retty.clone())
                     }
-                    _ => Err(TypeError::NotCallable(name.into())),
+                    _ => Err(TypeError::NotCallable(name.clone())),
                 }
             }
             Expr::Rec { ty, fields } => {
@@ -503,13 +499,13 @@ impl<'a> Checker<'a> {
                     Type::Rec { fields: fs, .. } => {
                         for (name, val) in fields {
                             self.resolve_with_pos(val, breakable)?.expect(
-                                fs.get(**name)
-                                    .ok_or_else(|| TypeError::NoSuchField(name.into()))?,
+                                fs.get(&**name)
+                                    .ok_or_else(|| TypeError::NoSuchField(name.clone()))?,
                             )?;
                         }
                         Ok(t)
                     }
-                    _ => Err(TypeError::NotRecord(ty.into())),
+                    _ => Err(TypeError::NotRecord(ty.clone())),
                 }
             }
             Expr::Array { ty, n, v } => {
@@ -520,7 +516,7 @@ impl<'a> Checker<'a> {
                         self.resolve_with_pos(v, breakable)?.expect(ty)?;
                         Ok(t)
                     }
-                    _ => Err(TypeError::NotArray(ty.into())),
+                    _ => Err(TypeError::NotArray(ty.clone())),
                 }
             }
             Expr::Assign(lvalue, expr) => {
@@ -534,7 +530,7 @@ impl<'a> Checker<'a> {
 
     fn resolve_with_pos(
         &mut self,
-        expr: &WithPos<Expr<'a>>,
+        expr: &WithPos<Expr>,
         breakable: bool,
     ) -> Result<WithPos<RcType>, TypeError> {
         Ok(WithPos {
@@ -606,9 +602,8 @@ mod tests {
         let samples: Vec<_> = fs::read_dir("samples")?
             .into_iter()
             .map(|sample| fs::read_to_string(sample?.path()))
-            .try_collect()?;
-        let samples: Vec<_> = samples
-            .iter()
+            .try_collect::<Vec<_>>()?
+            .into_iter()
             .filter_map(|sample| parse(&sample).ok())
             .collect();
         b.iter(|| {
