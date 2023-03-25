@@ -6,8 +6,9 @@ use anyhow::Result;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    io::{Read, Write},
+    io::{self, Read, Write},
     iter::once,
+    num,
     rc::Rc,
 };
 use thiserror::Error;
@@ -22,6 +23,10 @@ pub enum RuntimeError {
     NegtiveIndex(WithPos<isize>),
     #[error("{}, index out of range: {}", .0.pos, .0.inner)]
     IndexOutOfRange(WithPos<usize>),
+    #[error("{}, {}", .0.pos, .0.inner)]
+    IOError(WithPos<io::Error>),
+    #[error("{}, {}", .0.pos, .0.inner)]
+    TryFromIntError(WithPos<num::TryFromIntError>),
     #[error("")]
     Break,
 }
@@ -248,72 +253,89 @@ impl Interpreter {
                 let val = self.venv.get(name).unwrap().clone();
                 let mut args: Vec<_> = args.into_iter().map(|arg| self.eval(arg)).try_collect()?;
                 match val {
-                    Value::Fn(r#fn) => match r#fn {
-                        Fn::Print => {
-                            print!("{}", args.pop().unwrap().as_string());
-                            Ok(Value::Void)
-                        }
-                        Fn::Flush => {
-                            std::io::stdout().flush().unwrap();
-                            Ok(Value::Void)
-                        }
-                        Fn::Getchar => {
-                            let mut buf = [0u8];
-                            Ok(Value::String(
-                                if std::io::stdin().read(&mut buf[..]).unwrap() == 0 {
-                                    "".into()
-                                } else {
-                                    String::from(char::from(buf[0]))
-                                },
-                            ))
-                        }
-                        Fn::Ord => Ok(Value::Integer(
-                            args.pop()
-                                .unwrap()
-                                .as_string()
-                                .chars()
-                                .next()
-                                .map(|c| c as isize)
-                                .unwrap_or(-1),
-                        )),
-                        Fn::Chr => Ok(Value::String(String::from(char::from(
-                            args.pop().unwrap().as_int() as u8,
-                        )))),
-                        Fn::Size => Ok(Value::Integer(
-                            args.pop().unwrap().as_string().len() as isize
-                        )),
-                        Fn::Substring => {
-                            let n = args.pop().unwrap().as_int() as usize;
-                            let first = args.pop().unwrap().as_int() as usize;
-                            Ok(Value::String(String::from(
-                                &args.pop().unwrap().as_string()[first..first + n],
-                            )))
-                        }
-                        Fn::Concat => {
-                            let s2 = args.pop().unwrap().as_string();
-                            let mut s1 = args.pop().unwrap().as_string();
-                            s1.push_str(&s2);
-                            Ok(Value::String(s1))
-                        }
-                        Fn::Not => Ok(Value::Integer(if args.pop().unwrap().as_int() == 0 {
-                            1
-                        } else {
-                            0
-                        })),
-                        Fn::Exit => {
-                            std::process::exit(args.pop().unwrap().as_int().try_into().unwrap())
-                        }
-                        Fn::Other { fields, body } => {
-                            for (field, arg) in fields.iter().zip(args) {
-                                self.venv.insert(field.clone(), arg);
+                    Value::Fn(r#fn) => {
+                        match r#fn {
+                            Fn::Print => {
+                                print!("{}", args.pop().unwrap().as_string());
+                                Ok(Value::Void)
                             }
-                            let ret = self.eval(&body)?;
-                            for name in fields {
-                                self.venv.remove(&name);
+                            Fn::Flush => {
+                                std::io::stdout()
+                                    .flush()
+                                    .map_err(|err| RuntimeError::IOError(name.with_inner(err)))?;
+                                Ok(Value::Void)
                             }
-                            Ok(ret)
+                            Fn::Getchar => {
+                                let mut buf = [0u8];
+                                Ok(Value::String(
+                                    if std::io::stdin().read(&mut buf[..]).map_err(|err| {
+                                        RuntimeError::IOError(name.with_inner(err))
+                                    })? == 0
+                                    {
+                                        "".into()
+                                    } else {
+                                        String::from(char::from(buf[0]))
+                                    },
+                                ))
+                            }
+                            Fn::Ord => Ok(Value::Integer(
+                                args.pop()
+                                    .unwrap()
+                                    .as_string()
+                                    .bytes()
+                                    .next()
+                                    .map(isize::from)
+                                    .unwrap_or(-1),
+                            )),
+                            Fn::Chr => Ok(Value::String(String::from(char::from(
+                                u8::try_from(args.pop().unwrap().as_int()).map_err(|err| {
+                                    RuntimeError::TryFromIntError(name.with_inner(err))
+                                })?,
+                            )))),
+                            Fn::Size => Ok(Value::Integer(
+                                args.pop().unwrap().as_string().len().try_into().map_err(
+                                    |err| RuntimeError::TryFromIntError(name.with_inner(err)),
+                                )?,
+                            )),
+                            Fn::Substring => {
+                                let n = usize::try_from(args.pop().unwrap().as_int()).map_err(
+                                    |err| RuntimeError::TryFromIntError(name.with_inner(err)),
+                                )?;
+                                let first = usize::try_from(args.pop().unwrap().as_int()).map_err(
+                                    |err| RuntimeError::TryFromIntError(name.with_inner(err)),
+                                )?;
+                                Ok(Value::String(String::from(
+                                    &args.pop().unwrap().as_string()[first..first + n],
+                                )))
+                            }
+                            Fn::Concat => {
+                                let s2 = args.pop().unwrap().as_string();
+                                let mut s1 = args.pop().unwrap().as_string();
+                                s1.push_str(&s2);
+                                Ok(Value::String(s1))
+                            }
+                            Fn::Not => Ok(Value::Integer(if args.pop().unwrap().as_int() == 0 {
+                                1
+                            } else {
+                                0
+                            })),
+                            Fn::Exit => std::process::exit(
+                                args.pop().unwrap().as_int().try_into().map_err(|err| {
+                                    RuntimeError::TryFromIntError(name.with_inner(err))
+                                })?,
+                            ),
+                            Fn::Other { fields, body } => {
+                                for (field, arg) in fields.iter().zip(args) {
+                                    self.venv.insert(field.clone(), arg);
+                                }
+                                let ret = self.eval(&body)?;
+                                for name in fields {
+                                    self.venv.remove(&name);
+                                }
+                                Ok(ret)
+                            }
                         }
-                    },
+                    }
                     _ => unreachable!(),
                 }
             }
