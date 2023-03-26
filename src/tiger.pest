@@ -16,7 +16,7 @@ lvalueidx    =  { "[" ~ opexp ~ "]" }
 
 nil    =  { "nil" }
 seq    =  { "(" ~ (opexp ~ (";" ~ opexp)*)? ~ ")" }
-int    =  { "-"? ~ ASCII_DIGIT+ }
+int    = @{ "-"? ~ ASCII_DIGIT+ }
 neg    =  { "-" ~ opexp }
 string = @{ "\"" ~ ("\\\"" | "\\\\" | !"\"" ~ ANY)* ~ "\"" }
 fncall =  { ident ~ "(" ~ (opexp ~ ("," ~ opexp)*)? ~ ")" }
