@@ -32,7 +32,7 @@ pub enum RuntimeError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Fn {
+pub enum Fn<'a> {
     Print,
     Flush,
     Getchar,
@@ -44,23 +44,22 @@ pub enum Fn {
     Not,
     Exit,
     Other {
-        fields: Vec<String>,
-        body: Box<WithPos<Expr>>,
+        fields: Vec<&'a str>,
+        body: Box<WithPos<Expr<'a>>>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Value {
+pub enum Value<'a> {
     Void,
     Integer(isize),
     String(String),
     Nil,
-    Array(Rc<Option<Vec<Value>>>),
-    Rec(Rc<Option<HashMap<String, Value>>>),
-    Fn(Fn),
+    Array(Rc<Option<Vec<Value<'a>>>>),
+    Rec(Rc<Option<HashMap<&'a str, Value<'a>>>>),
 }
 
-impl Value {
+impl<'a> Value<'a> {
     fn as_int(self) -> isize {
         match self {
             Value::Integer(int) => int,
@@ -76,34 +75,36 @@ impl Value {
     }
 }
 
-struct Interpreter {
-    venv: Env<Value>,
+struct Interpreter<'a> {
+    venv: Env<'a, Value<'a>>,
+    fenv: Env<'a, Fn<'a>>,
 }
 
-impl Interpreter {
+impl<'a> Interpreter<'a> {
     fn new() -> Self {
-        let mut venv = Env::new();
-        venv.insert("print".into(), Value::Fn(Fn::Print));
-        venv.insert("flush".into(), Value::Fn(Fn::Flush));
-        venv.insert("getchar".into(), Value::Fn(Fn::Getchar));
-        venv.insert("ord".into(), Value::Fn(Fn::Ord));
-        venv.insert("chr".into(), Value::Fn(Fn::Chr));
-        venv.insert("size".into(), Value::Fn(Fn::Size));
-        venv.insert("substring".into(), Value::Fn(Fn::Substring));
-        venv.insert("concat".into(), Value::Fn(Fn::Concat));
-        venv.insert("not".into(), Value::Fn(Fn::Not));
-        venv.insert("exit".into(), Value::Fn(Fn::Exit));
-        Self { venv }
+        let venv = Env::new();
+        let mut fenv = Env::new();
+        fenv.insert("print", Fn::Print);
+        fenv.insert("flush", Fn::Flush);
+        fenv.insert("getchar", Fn::Getchar);
+        fenv.insert("ord", Fn::Ord);
+        fenv.insert("chr", Fn::Chr);
+        fenv.insert("size", Fn::Size);
+        fenv.insert("substring", Fn::Substring);
+        fenv.insert("concat", Fn::Concat);
+        fenv.insert("not", Fn::Not);
+        fenv.insert("exit", Fn::Exit);
+        Self { venv, fenv }
     }
 
-    fn resolve_lvalue(&mut self, lvalue: &Lvalue) -> Result<&mut Value, RuntimeError> {
+    fn resolve_lvalue(&mut self, lvalue: &Lvalue<'a>) -> Result<&mut Value<'a>, RuntimeError> {
         match lvalue {
             Lvalue::Var(var) => Ok(self.venv.get_mut(var).unwrap()),
             Lvalue::Rec(var, field) => match &mut *self.resolve_lvalue(var)? {
                 Value::Rec(ref mut fields) => Ok(unsafe { Rc::get_mut_unchecked(fields) }
                     .as_mut()
                     .ok_or_else(|| RuntimeError::DerefNilStruct(field.pos))?
-                    .get_mut(&**field)
+                    .get_mut(**field)
                     .unwrap()),
                 _ => unreachable!(),
             },
@@ -126,22 +127,22 @@ impl Interpreter {
         }
     }
 
-    fn eval_vardec(&mut self, decs: &Vec<Dec>) -> Result<(), RuntimeError> {
+    fn eval_vardec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), RuntimeError> {
         for dec in decs {
             match dec {
                 Dec::VarDec { name, val, .. } => {
                     let val = self.eval(val)?;
-                    self.venv.insert((**name).clone(), val);
+                    self.venv.insert(name, val);
                 }
                 Dec::FnDec {
                     name, fields, body, ..
                 } => {
-                    self.venv.insert(
-                        name.clone(),
-                        Value::Fn(Fn::Other {
-                            fields: fields.into_iter().map(|field| field.name.clone()).collect(),
+                    self.fenv.insert(
+                        name,
+                        Fn::Other {
+                            fields: fields.into_iter().map(|field| field.name).collect(),
                             body: body.clone(),
-                        })
+                        }
                         .into(),
                     );
                 }
@@ -151,7 +152,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn eval(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
+    fn eval(&mut self, expr: &Expr<'a>) -> Result<Value<'a>, RuntimeError> {
         match expr {
             Expr::BinOp { lhs, rhs, op } => {
                 let lhs = self.eval(lhs)?;
@@ -209,7 +210,7 @@ impl Interpreter {
                 }
             },
             Expr::Integer(int) => Ok(Value::Integer(*int)),
-            Expr::String(string) => Ok(Value::String(string.clone())),
+            Expr::String(string) => Ok(Value::String(string.to_string())),
             Expr::If(cond, t, f) => {
                 let cond = self.eval(cond)?.as_int();
                 match f {
@@ -235,7 +236,7 @@ impl Interpreter {
                 let begin = self.eval(begin)?.as_int();
                 let end = self.eval(end)?.as_int();
                 for i in begin..=end {
-                    self.venv.insert(name.clone(), Value::Integer(i));
+                    self.venv.insert(name, Value::Integer(i));
                     match self.eval(body) {
                         Err(RuntimeError::Break) => break,
                         other => other?,
@@ -250,99 +251,97 @@ impl Interpreter {
                 self.eval(expr)
             }
             Expr::FnCall { name, args } => {
-                let val = self.venv.get(name).unwrap().clone();
+                let val = self.fenv.get(name).unwrap().clone();
                 let mut args: Vec<_> = args.into_iter().map(|arg| self.eval(arg)).try_collect()?;
                 match val {
-                    Value::Fn(r#fn) => {
-                        match r#fn {
-                            Fn::Print => {
-                                print!("{}", args.pop().unwrap().as_string());
-                                Ok(Value::Void)
-                            }
-                            Fn::Flush => {
-                                std::io::stdout()
-                                    .flush()
-                                    .map_err(|err| RuntimeError::IOError(name.with_inner(err)))?;
-                                Ok(Value::Void)
-                            }
-                            Fn::Getchar => {
-                                let mut buf = [0u8];
-                                Ok(Value::String(
-                                    if std::io::stdin().read(&mut buf[..]).map_err(|err| {
-                                        RuntimeError::IOError(name.with_inner(err))
-                                    })? == 0
-                                    {
-                                        "".into()
-                                    } else {
-                                        String::from(char::from(buf[0]))
-                                    },
-                                ))
-                            }
-                            Fn::Ord => Ok(Value::Integer(
-                                args.pop()
-                                    .unwrap()
-                                    .as_string()
-                                    .bytes()
-                                    .next()
-                                    .map(isize::from)
-                                    .unwrap_or(-1),
-                            )),
-                            Fn::Chr => Ok(Value::String(String::from(char::from(
-                                u8::try_from(args.pop().unwrap().as_int()).map_err(|err| {
-                                    RuntimeError::TryFromIntError(name.with_inner(err))
-                                })?,
-                            )))),
-                            Fn::Size => Ok(Value::Integer(
-                                args.pop().unwrap().as_string().len().try_into().map_err(
-                                    |err| RuntimeError::TryFromIntError(name.with_inner(err)),
-                                )?,
-                            )),
-                            Fn::Substring => {
-                                let n = usize::try_from(args.pop().unwrap().as_int()).map_err(
-                                    |err| RuntimeError::TryFromIntError(name.with_inner(err)),
-                                )?;
-                                let first = usize::try_from(args.pop().unwrap().as_int()).map_err(
-                                    |err| RuntimeError::TryFromIntError(name.with_inner(err)),
-                                )?;
-                                Ok(Value::String(String::from(
-                                    &args.pop().unwrap().as_string()[first..first + n],
-                                )))
-                            }
-                            Fn::Concat => {
-                                let s2 = args.pop().unwrap().as_string();
-                                let mut s1 = args.pop().unwrap().as_string();
-                                s1.push_str(&s2);
-                                Ok(Value::String(s1))
-                            }
-                            Fn::Not => Ok(Value::Integer(if args.pop().unwrap().as_int() == 0 {
-                                1
-                            } else {
-                                0
-                            })),
-                            Fn::Exit => std::process::exit(
-                                args.pop().unwrap().as_int().try_into().map_err(|err| {
-                                    RuntimeError::TryFromIntError(name.with_inner(err))
-                                })?,
-                            ),
-                            Fn::Other { fields, body } => {
-                                for (field, arg) in fields.iter().zip(args) {
-                                    self.venv.insert(field.clone(), arg);
-                                }
-                                let ret = self.eval(&body)?;
-                                for name in fields {
-                                    self.venv.remove(&name);
-                                }
-                                Ok(ret)
-                            }
-                        }
+                    Fn::Print => {
+                        print!("{}", args.pop().unwrap().as_string());
+                        Ok(Value::Void)
                     }
-                    _ => unreachable!(),
+                    Fn::Flush => {
+                        std::io::stdout()
+                            .flush()
+                            .map_err(|err| RuntimeError::IOError(name.with_inner(err)))?;
+                        Ok(Value::Void)
+                    }
+                    Fn::Getchar => {
+                        let mut buf = [0u8];
+                        Ok(Value::String(
+                            if std::io::stdin()
+                                .read(&mut buf[..])
+                                .map_err(|err| RuntimeError::IOError(name.with_inner(err)))?
+                                == 0
+                            {
+                                "".into()
+                            } else {
+                                String::from(char::from(buf[0]))
+                            },
+                        ))
+                    }
+                    Fn::Ord => Ok(Value::Integer(
+                        args.pop()
+                            .unwrap()
+                            .as_string()
+                            .bytes()
+                            .next()
+                            .map(isize::from)
+                            .unwrap_or(-1),
+                    )),
+                    Fn::Chr => Ok(Value::String(String::from(char::from(
+                        u8::try_from(args.pop().unwrap().as_int())
+                            .map_err(|err| RuntimeError::TryFromIntError(name.with_inner(err)))?,
+                    )))),
+                    Fn::Size => Ok(Value::Integer(
+                        args.pop()
+                            .unwrap()
+                            .as_string()
+                            .len()
+                            .try_into()
+                            .map_err(|err| RuntimeError::TryFromIntError(name.with_inner(err)))?,
+                    )),
+                    Fn::Substring => {
+                        let n = usize::try_from(args.pop().unwrap().as_int())
+                            .map_err(|err| RuntimeError::TryFromIntError(name.with_inner(err)))?;
+                        let first = usize::try_from(args.pop().unwrap().as_int())
+                            .map_err(|err| RuntimeError::TryFromIntError(name.with_inner(err)))?;
+                        Ok(Value::String(String::from(
+                            &args.pop().unwrap().as_string()[first..first + n],
+                        )))
+                    }
+                    Fn::Concat => {
+                        let s2 = args.pop().unwrap().as_string();
+                        let mut s1 = args.pop().unwrap().as_string();
+                        s1.push_str(&s2);
+                        Ok(Value::String(s1))
+                    }
+                    Fn::Not => Ok(Value::Integer(if args.pop().unwrap().as_int() == 0 {
+                        1
+                    } else {
+                        0
+                    })),
+                    Fn::Exit => {
+                        std::process::exit(
+                            args.pop().unwrap().as_int().try_into().map_err(|err| {
+                                RuntimeError::TryFromIntError(name.with_inner(err))
+                            })?,
+                        )
+                    }
+                    Fn::Other { fields, body } => {
+                        for (field, arg) in fields.iter().zip(args) {
+                            self.venv.insert(field, arg);
+                        }
+                        let ret = self.eval(&body)?;
+                        for name in fields.iter() {
+                            self.venv.remove(name);
+                        }
+                        Ok(ret)
+                    }
                 }
             }
             Expr::Rec { fields, .. } => {
                 let mut rec = HashMap::new();
                 for (field, val) in fields {
-                    rec.insert((**field).clone(), self.eval(val)?);
+                    rec.insert(field.inner, self.eval(val)?);
                 }
                 Ok(Value::Rec(Rc::new(Some(rec))))
             }
@@ -366,7 +365,7 @@ impl Interpreter {
     }
 }
 
-pub fn eval(expr: &Expr) -> Result<Value, RuntimeError> {
+pub fn eval<'a>(expr: &'a Expr) -> Result<Value<'a>, RuntimeError> {
     Interpreter::new().eval(expr)
 }
 
@@ -440,8 +439,9 @@ mod tests {
             .into_iter()
             .filter(|sample| !ignored.contains(sample.file_name().to_str().unwrap()))
             .map(|sample| fs::read_to_string(sample.path()))
-            .try_collect::<Vec<_>>()?
-            .into_iter()
+            .try_collect::<Vec<_>>()?;
+        let samples: Vec<_> = samples
+            .iter()
             .filter_map(|sample| parse(&sample).ok())
             .filter(|expr| check(&expr).is_ok())
             .collect();

@@ -188,10 +188,7 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                     parse_expr(pairs.next().unwrap().into_inner())?.into(),
                 ));
             }
-            Rule::r#break => exprs.push_back(Expr::Break(WithPos {
-                pos: pair.line_col().into(),
-                inner: (),
-            })),
+            Rule::r#break => exprs.push_back(Expr::Break(pair.line_col().into())),
             Rule::r#let => {
                 let mut decs = Vec::new();
                 let mut pairs = pair.into_inner().peekable();
@@ -306,7 +303,8 @@ mod tests {
     fn test_samples() -> Result<()> {
         for sample in fs::read_dir("samples")? {
             let sample = sample?;
-            let result = parse(&fs::read_to_string(sample.path())?);
+            let ast = fs::read_to_string(sample.path())?;
+            let result = parse(&ast);
             if sample.file_name() == "test49.tig" {
                 assert!(result.is_err());
             } else if let Err(error) = result {
