@@ -1,7 +1,7 @@
 use crate::parser::{parse_expr, parse_lvalue, Rule};
 use anyhow::Error;
 use pest::iterators::Pair;
-use std::{fmt::Display, ops::Deref};
+use std::{borrow::Cow, fmt::Display, ops::Deref};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
@@ -113,7 +113,7 @@ pub enum Expr<'a> {
     Neg(Box<WithPos<Self>>),
     Seq(Vec<Self>),
     Integer(isize),
-    String(String),
+    String(Cow<'a, String>),
     If(
         Box<WithPos<Self>>,
         Box<WithPos<Self>>,
