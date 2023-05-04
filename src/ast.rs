@@ -113,7 +113,7 @@ pub enum Expr<'a> {
     Neg(Box<WithPos<Self>>),
     Seq(Vec<Self>),
     Integer(isize),
-    String(Cow<'a, String>),
+    String(Cow<'a, str>),
     If(
         Box<WithPos<Self>>,
         Box<WithPos<Self>>,

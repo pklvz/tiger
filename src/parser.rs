@@ -4,7 +4,7 @@ use pest::{
     iterators::{Pair, Pairs},
     Parser,
 };
-use std::{collections::LinkedList, ops::Deref};
+use std::{borrow::Cow, collections::LinkedList, ops::Deref};
 
 #[derive(Parser)]
 #[grammar = "tiger.pest"]
@@ -124,7 +124,45 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                 None => pair.as_str().trim().parse()?,
             })),
             Rule::neg => exprs.push_back(Expr::Neg(pair.try_into()?)),
-            Rule::string => exprs.push_back(Expr::String(serde_json::from_str(pair.as_str())?)),
+            Rule::string => {
+                let s = pair.as_str();
+                let mut string = String::new();
+                let mut has_escape_char = false;
+                for pair in pair.into_inner() {
+                    let mut escape = true;
+                    match pair.as_rule() {
+                        Rule::newline => string.push('\n'),
+                        Rule::tab => string.push('\t'),
+                        Rule::ctrl => string.push(match pair.as_str().chars().last().unwrap() {
+                            ctrl @ 'A'..='Z' => ctrl as u8 - 'A' as u8 + 1,
+                            '[' => 27,
+                            '\\' => 28,
+                            ']' => 29,
+                            '^' => 30,
+                            '_' => 31,
+                            '?' => 127,
+                            _ => unreachable!(),
+                        } as char),
+                        Rule::decimal => {
+                            string.push(pair.as_str()[1..].parse::<u8>().unwrap() as char)
+                        }
+                        Rule::quote => string.push('"'),
+                        Rule::escape => string.push('\\'),
+                        Rule::ignore => (),
+                        Rule::char => {
+                            escape = false;
+                            string.push_str(pair.as_str())
+                        }
+                        _ => unreachable!(),
+                    }
+                    has_escape_char |= escape;
+                }
+                exprs.push_back(Expr::String(if has_escape_char {
+                    Cow::Owned(string)
+                } else {
+                    Cow::Borrowed(s)
+                }))
+            }
             Rule::fncall => {
                 let mut pairs = pair.into_inner();
                 let name = pairs.next().unwrap();

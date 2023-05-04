@@ -8,5 +8,4 @@ pest = "2.5"
 pest_derive = "2.5"
 anyhow = "1.0"
 thiserror = "1.0"
-serde_json = "1.0"
 clap = { version = "4.1", features = ["derive"] }

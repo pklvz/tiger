@@ -14,36 +14,44 @@ lvaluesuffix = _{ lvaluefield | lvalueidx }
 lvaluefield  =  { "." ~ ident }
 lvalueidx    =  { "[" ~ opexp ~ "]" }
 
-nil    =  { "nil" }
-seq    =  { "(" ~ (opexp ~ (";" ~ opexp)*)? ~ ")" }
-int    = @{ "-"? ~ ASCII_DIGIT+ }
-neg    =  { "-" ~ opexp }
-string = @{ "\"" ~ ("\\\"" | "\\\\" | !"\"" ~ ANY)* ~ "\"" }
-fncall =  { ident ~ "(" ~ (opexp ~ ("," ~ opexp)*)? ~ ")" }
-rec    =  { ident ~ "{" ~ (ident ~ "=" ~ opexp ~ ("," ~ ident ~ "=" ~ opexp)*)? ~ "}" }
-array  =  { ident ~ "[" ~ opexp ~ "]" ~ "of" ~ opexp }
-assign =  { lvalue ~ ":=" ~ opexp }
-if     =  { "if" ~ opexp ~ "then" ~ opexp ~ ("else" ~ opexp)? }
-while  =  { "while" ~ opexp ~ "do" ~ opexp }
-for    =  { "for" ~ ident ~ ":=" ~ opexp ~ "to" ~ opexp ~ "do" ~ opexp }
-break  =  { "break" }
-let    =  { "let" ~ decs ~ "in" ~ letseq ~ "end" }
-letseq =  { (opexp ~ (";" ~ opexp)*)? }
-exp    = _{ nil | seq | int | neg | string | if | while | for | break | let | "(" ~ opexp ~ ")" | fncall | rec | array | assign | lvalue }
-add    =  { "+" }
-sub    =  { "-" }
-mul    =  { "*" }
-div    =  { "/" }
-gt     =  { ">" }
-ge     =  { ">=" }
-lt     =  { "<" }
-le     =  { "<=" }
-ne     =  { "<>" }
-eq     =  { "=" }
-and    =  { "&" }
-or     =  { "|" }
-op     = _{ add | sub | mul | div | ge | gt | ne | le | lt | eq | and | or }
-opexp  =  { exp ~ (op ~ exp)* }
+nil     =  { "nil" }
+seq     =  { "(" ~ (opexp ~ (";" ~ opexp)*)? ~ ")" }
+int     = @{ "-"? ~ ASCII_DIGIT+ }
+neg     =  { "-" ~ opexp }
+newline =  { "\\n" }
+tab     =  { "\\t" }
+ctrl    =  { "\\^" ~ (ASCII_ALPHA_UPPER | "[" | "\\" | "]" | "^" | "_" | "?") }
+decimal =  { "\\" ~ ASCII_DIGIT{3} }
+quote   =  { "\\\"" }
+escape  =  { "\\\\" }
+ignore  =  { "\\" ~ WHITESPACE* ~ "\\" }
+char    =  { !("\"" | "\\") ~ ANY }
+string  = ${ "\"" ~ (newline | tab | ctrl | decimal | quote | escape | ignore | char)* ~ "\"" }
+fncall  =  { ident ~ "(" ~ (opexp ~ ("," ~ opexp)*)? ~ ")" }
+rec     =  { ident ~ "{" ~ (ident ~ "=" ~ opexp ~ ("," ~ ident ~ "=" ~ opexp)*)? ~ "}" }
+array   =  { ident ~ "[" ~ opexp ~ "]" ~ "of" ~ opexp }
+assign  =  { lvalue ~ ":=" ~ opexp }
+if      =  { "if" ~ opexp ~ "then" ~ opexp ~ ("else" ~ opexp)? }
+while   =  { "while" ~ opexp ~ "do" ~ opexp }
+for     =  { "for" ~ ident ~ ":=" ~ opexp ~ "to" ~ opexp ~ "do" ~ opexp }
+break   =  { "break" }
+let     =  { "let" ~ decs ~ "in" ~ letseq ~ "end" }
+letseq  =  { (opexp ~ (";" ~ opexp)*)? }
+exp     = _{ nil | seq | int | neg | string | if | while | for | break | let | "(" ~ opexp ~ ")" | fncall | rec | array | assign | lvalue }
+add     =  { "+" }
+sub     =  { "-" }
+mul     =  { "*" }
+div     =  { "/" }
+gt      =  { ">" }
+ge      =  { ">=" }
+lt      =  { "<" }
+le      =  { "<=" }
+ne      =  { "<>" }
+eq      =  { "=" }
+and     =  { "&" }
+or      =  { "|" }
+op      = _{ add | sub | mul | div | ge | gt | ne | le | lt | eq | and | or }
+opexp   =  { exp ~ (op ~ exp)* }
 
 main = { SOI ~ opexp ~ EOI }
 
