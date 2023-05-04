@@ -253,15 +253,11 @@ impl<'a> Checker<'a> {
         'a: loop {
             for (name, tys) in &self.tenv.0 {
                 if let Type::Unknown(ty) = &**tys.front().unwrap() {
-                    if !traces
-                        .entry(name.clone())
-                        .or_default()
-                        .insert(ty.inner.clone())
-                    {
+                    if !traces.entry(*name).or_default().insert(ty.inner.clone()) {
                         return Err(TypeError::RecursiveType(ty.clone()));
                     } else if let Some(ty) = self.tenv.get(ty).cloned() {
-                        let name = name.clone();
-                        self.tenv.remove(&name);
+                        let name = *name;
+                        self.tenv.remove(name);
                         self.tenv.insert(name, ty);
                     }
                     continue 'a;
