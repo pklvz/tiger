@@ -108,16 +108,20 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn eval_vardec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), Error> {
+    fn eval_vardec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(Vec<String>, Vec<String>), Error> {
+        let mut vnames = Vec::new();
+        let mut fnames = Vec::new();
         for dec in decs {
             match dec {
                 Dec::VarDec { name, val, .. } => {
+                    vnames.push(name.to_string());
                     let val = self.eval(val)?;
                     self.venv.insert(name, val);
                 }
                 Dec::FnDec {
                     name, fields, body, ..
                 } => {
+                    fnames.push(name.to_string());
                     self.fenv.insert(
                         name,
                         Fn::Other {
@@ -130,7 +134,7 @@ impl<'a> Interpreter<'a> {
                 _ => (),
             }
         }
-        Ok(())
+        Ok((vnames, fnames))
     }
 
     fn eval(&mut self, expr: &Expr<'a>) -> Result<Value<'a>, Error> {
@@ -228,8 +232,15 @@ impl<'a> Interpreter<'a> {
             }
             Expr::Break(_) => Err(Error::Break),
             Expr::Let(decs, expr) => {
-                self.eval_vardec(decs)?;
-                self.eval(expr)
+                let (vnames, fnames) = self.eval_vardec(decs)?;
+                let value = self.eval(expr);
+                for vname in vnames {
+                    self.venv.remove(&vname);
+                }
+                for fname in fnames {
+                    self.fenv.remove(&fname);
+                }
+                value
             }
             Expr::FnCall { name, args } => {
                 let val = self.fenv.get(name).unwrap().clone();
