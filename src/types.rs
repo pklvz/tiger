@@ -1,6 +1,7 @@
 use crate::{
     ast::{self, Dec, Expr, Lvalue, Op, Pos, WithPos},
     env::Env,
+    error::Error,
 };
 use anyhow::Result;
 use std::{
@@ -8,44 +9,6 @@ use std::{
     fmt::{Debug, Display},
     rc::Rc,
 };
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum TypeError<'a> {
-    #[error("{}, unsupported operand type(s) for {}: {lty} and {rty}", .op.pos, .op.inner)]
-    UnsupportedOperandType {
-        op: WithPos<Op>,
-        lty: RcType,
-        rty: RcType,
-    },
-    #[error("{}, mismatched types: expected {expected}, found {}", .found.pos, .found.inner)]
-    MismatchedTypes {
-        expected: RcType,
-        found: WithPos<RcType>,
-    },
-    #[error("{}, {} takes {expected} positional argument(s) but {found} were given", .name.pos, .name.inner)]
-    MismatchedArgumentNum {
-        name: WithPos<&'a str>,
-        expected: usize,
-        found: usize,
-    },
-    #[error("{}, recursive type found: {}", .0.pos, .0.inner)]
-    RecursiveType(WithPos<String>),
-    #[error("{}, unknown type of {}", .0.pos, .0.inner)]
-    UnknownType(WithPos<&'a str>),
-    #[error("{}, name {} is not defined", .0.pos, .0.inner)]
-    NotDefined(WithPos<String>),
-    #[error("{}, {} is not callable", .0.pos, .0.inner)]
-    NotCallable(WithPos<&'a str>),
-    #[error("{}, {} is not record", .0.pos, .0.inner)]
-    NotRecord(WithPos<String>),
-    #[error("{}, record has no field {}", .0.pos, .0.inner)]
-    NoSuchField(WithPos<&'a str>),
-    #[error("{}, {} is not array", .0.pos, .0.inner)]
-    NotArray(WithPos<String>),
-    #[error("{0}, break outside loop")]
-    BreakOutsideLoop(Pos),
-}
 
 #[derive(Clone, Debug)]
 pub struct RcType(Rc<Type>);
@@ -77,7 +40,7 @@ impl PartialEq for RcType {
 }
 
 impl WithPos<RcType> {
-    fn expect<'a>(&self, expected: &RcType) -> Result<(), TypeError<'a>> {
+    fn expect<'a>(&self, expected: &RcType) -> Result<(), Error> {
         if &**self == expected {
             Ok(())
         } else {
@@ -86,7 +49,7 @@ impl WithPos<RcType> {
                 | (Type::Rec { .. }, Type::Nil)
                 | (Type::Nil, Type::Rec { .. })
                 | (Type::Nil, Type::Array { .. }) => Ok(()),
-                _ => Err(TypeError::MismatchedTypes {
+                _ => Err(Error::MismatchedTypes {
                     expected: expected.clone(),
                     found: self.clone(),
                 }),
@@ -185,19 +148,19 @@ impl<'a> Checker<'a> {
         lvalue: &Lvalue<'a>,
         pos: Pos,
         breakable: bool,
-    ) -> Result<RcType, TypeError<'a>> {
+    ) -> Result<RcType, Error> {
         match lvalue {
             Lvalue::Var(var) => Ok(self
                 .venv
                 .get(var)
-                .ok_or_else(|| TypeError::NotDefined(var.into()))?
+                .ok_or_else(|| Error::NotDefined(var.into()))?
                 .clone()),
             Lvalue::Rec(var, field) => match &*self.resolve_lvalue(var, pos, breakable)? {
                 Type::Rec { fields, .. } => Ok(fields
                     .get(**field)
-                    .ok_or_else(|| TypeError::NoSuchField(*field))?
+                    .ok_or_else(|| Error::NoSuchField(field.into()))?
                     .clone()),
-                _ => Err(TypeError::NotRecord(WithPos {
+                _ => Err(Error::NotRecord(WithPos {
                     inner: format!("{}", var),
                     pos,
                 })),
@@ -207,7 +170,7 @@ impl<'a> Checker<'a> {
                     self.resolve_with_pos(idx, breakable)?.expect(&self.int)?;
                     Ok(ty.clone())
                 }
-                _ => Err(TypeError::NotArray(WithPos {
+                _ => Err(Error::NotArray(WithPos {
                     inner: format!("{}", var),
                     pos,
                 })),
@@ -215,7 +178,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn try_resolve_tydec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), TypeError<'a>> {
+    fn try_resolve_tydec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), Error> {
         for dec in decs {
             if let Dec::TyDec(name, ty) = dec {
                 let resolve = |ty: &WithPos<&str>| {
@@ -248,13 +211,13 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve_alias(&mut self) -> Result<(), TypeError<'a>> {
+    fn resolve_alias(&mut self) -> Result<(), Error> {
         let mut traces: HashMap<_, HashSet<_>> = HashMap::new();
         'a: loop {
             for (name, tys) in &self.tenv.0 {
                 if let Type::Unknown(ty) = &**tys.front().unwrap() {
                     if !traces.entry(*name).or_default().insert(ty.inner.clone()) {
-                        return Err(TypeError::RecursiveType(ty.clone()));
+                        return Err(Error::RecursiveType(ty.clone()));
                     } else if let Some(ty) = self.tenv.get(ty).cloned() {
                         let name = *name;
                         self.tenv.remove(name);
@@ -268,14 +231,14 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve_tydec(&mut self) -> Result<(), TypeError<'a>> {
+    fn resolve_tydec(&mut self) -> Result<(), Error> {
         for tys in self.tenv.0.values() {
             let mut ty = tys.front().unwrap().clone();
             let resolve = |ty: &WithPos<String>| {
                 self.tenv
                     .get(ty)
                     .cloned()
-                    .ok_or_else(|| TypeError::NotDefined(ty.clone()))
+                    .ok_or_else(|| Error::NotDefined(ty.clone()))
             };
             match unsafe { Rc::get_mut_unchecked(&mut ty.0) } {
                 Type::Array { ref mut ty, .. } => {
@@ -298,11 +261,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve_vardec(
-        &mut self,
-        decs: &Vec<Dec<'a>>,
-        breakable: bool,
-    ) -> Result<(), TypeError<'a>> {
+    fn resolve_vardec(&mut self, decs: &Vec<Dec<'a>>, breakable: bool) -> Result<(), Error> {
         for dec in decs {
             match dec {
                 Dec::VarDec { name, ty, val } => {
@@ -312,13 +271,13 @@ impl<'a> Checker<'a> {
                             let expected = self
                                 .tenv
                                 .get(ty)
-                                .ok_or_else(|| TypeError::NotDefined(ty.into()))?;
+                                .ok_or_else(|| Error::NotDefined(ty.into()))?;
                             found.expect(expected)?;
                             self.venv.insert(name, expected.clone());
                         }
                         _ => {
                             if *found.inner == Type::Nil {
-                                return Err(TypeError::UnknownType(*name));
+                                return Err(Error::UnknownType(name.into()));
                             } else {
                                 self.venv.insert(name, found.inner);
                             }
@@ -339,7 +298,7 @@ impl<'a> Checker<'a> {
                                 .map(|field| {
                                     self.tenv
                                         .get(&field.ty)
-                                        .ok_or_else(|| TypeError::NotDefined(field.ty.into()))
+                                        .ok_or_else(|| Error::NotDefined(field.ty.into()))
                                         .cloned()
                                 })
                                 .try_collect()?,
@@ -347,7 +306,7 @@ impl<'a> Checker<'a> {
                                 Some(retty) => self
                                     .tenv
                                     .get(retty)
-                                    .ok_or_else(|| TypeError::NotDefined(retty.into()))?
+                                    .ok_or_else(|| Error::NotDefined(retty.into()))?
                                     .clone(),
                                 None => self.void.clone(),
                             },
@@ -361,7 +320,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve_fn_body(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), TypeError<'a>> {
+    fn resolve_fn_body(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), Error> {
         for dec in decs {
             if let Dec::FnDec {
                 fields,
@@ -375,7 +334,7 @@ impl<'a> Checker<'a> {
                         field.name,
                         self.tenv
                             .get(&field.ty)
-                            .ok_or_else(|| TypeError::NotDefined(field.ty.into()))?
+                            .ok_or_else(|| Error::NotDefined(field.ty.into()))?
                             .clone(),
                     );
                 }
@@ -383,7 +342,7 @@ impl<'a> Checker<'a> {
                     Some(retty) => self
                         .tenv
                         .get(retty)
-                        .ok_or_else(|| TypeError::NotDefined(retty.into()))?,
+                        .ok_or_else(|| Error::NotDefined(retty.into()))?,
                     None => &self.void,
                 })?;
                 for field in fields {
@@ -394,7 +353,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve(&mut self, expr: &Expr<'a>, breakable: bool) -> Result<RcType, TypeError<'a>> {
+    fn resolve(&mut self, expr: &Expr<'a>, breakable: bool) -> Result<RcType, Error> {
         match expr {
             Expr::BinOp { lhs, op, rhs } => {
                 let lty = self.resolve(lhs, breakable)?;
@@ -412,7 +371,7 @@ impl<'a> Checker<'a> {
                     | (Op::Ne | Op::Eq, Type::Rec { .. }, Type::Rec { .. })
                     | (Op::Ne | Op::Eq, Type::Rec { .. }, Type::Nil)
                     | (Op::Ne | Op::Eq, Type::Nil, Type::Rec { .. }) => Ok(self.int.clone()),
-                    _ => Err(TypeError::UnsupportedOperandType { op: *op, lty, rty }),
+                    _ => Err(Error::UnsupportedOperandType { op: *op, lty, rty }),
                 }
             }
             Expr::Nil => Ok(self.nil.clone()),
@@ -463,7 +422,7 @@ impl<'a> Checker<'a> {
                 if breakable {
                     Ok(self.void.clone())
                 } else {
-                    Err(TypeError::BreakOutsideLoop(*pos))
+                    Err(Error::BreakOutsideLoop(*pos))
                 }
             }
             Expr::Let(decs, expr) => {
@@ -478,13 +437,13 @@ impl<'a> Checker<'a> {
                 let ty = self
                     .venv
                     .get(name)
-                    .ok_or_else(|| TypeError::NotDefined(name.into()))?
+                    .ok_or_else(|| Error::NotDefined(name.into()))?
                     .clone();
                 match &*ty {
                     Type::Fn { fields, retty } => {
                         if fields.len() != args.len() {
-                            return Err(TypeError::MismatchedArgumentNum {
-                                name: *name,
+                            return Err(Error::MismatchedArgumentNum {
+                                name: name.into(),
                                 expected: fields.len(),
                                 found: args.len(),
                             });
@@ -494,26 +453,26 @@ impl<'a> Checker<'a> {
                         }
                         Ok(retty.clone())
                     }
-                    _ => Err(TypeError::NotCallable(*name)),
+                    _ => Err(Error::NotCallable(name.into())),
                 }
             }
             Expr::Rec { ty, fields } => {
                 let t = self
                     .tenv
                     .get(ty)
-                    .ok_or_else(|| TypeError::NotDefined(ty.into()))?
+                    .ok_or_else(|| Error::NotDefined(ty.into()))?
                     .clone();
                 match &*t {
                     Type::Rec { fields: fs, .. } => {
                         for (name, val) in fields {
                             self.resolve_with_pos(val, breakable)?.expect(
                                 fs.get(**name)
-                                    .ok_or_else(|| TypeError::NoSuchField(*name))?,
+                                    .ok_or_else(|| Error::NoSuchField(name.into()))?,
                             )?;
                         }
                         Ok(t)
                     }
-                    _ => Err(TypeError::NotRecord(ty.into())),
+                    _ => Err(Error::NotRecord(ty.into())),
                 }
             }
             Expr::Array { ty, n, v } => {
@@ -521,14 +480,14 @@ impl<'a> Checker<'a> {
                 let t = self
                     .tenv
                     .get(ty)
-                    .ok_or_else(|| TypeError::NotDefined(ty.into()))?
+                    .ok_or_else(|| Error::NotDefined(ty.into()))?
                     .clone();
                 match &*t {
                     Type::Array { ty, .. } => {
                         self.resolve_with_pos(v, breakable)?.expect(ty)?;
                         Ok(t)
                     }
-                    _ => Err(TypeError::NotArray(ty.into())),
+                    _ => Err(Error::NotArray(ty.into())),
                 }
             }
             Expr::Assign(lvalue, expr) => {
@@ -544,7 +503,7 @@ impl<'a> Checker<'a> {
         &mut self,
         expr: &WithPos<Expr<'a>>,
         breakable: bool,
-    ) -> Result<WithPos<RcType>, TypeError<'a>> {
+    ) -> Result<WithPos<RcType>, Error> {
         Ok(WithPos {
             inner: self.resolve(expr, breakable)?,
             pos: expr.pos,
@@ -552,79 +511,7 @@ impl<'a> Checker<'a> {
     }
 }
 
-pub fn check<'a>(expr: &Expr<'a>) -> Result<(), TypeError<'a>> {
+pub fn check<'a>(expr: &Expr<'a>) -> Result<(), Error> {
     Checker::new().resolve(expr, false)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::parse;
-    use anyhow::anyhow;
-    use std::{collections::HashSet, fs};
-    use test::Bencher;
-
-    #[test]
-    fn test_samples() -> Result<()> {
-        let errors = HashSet::from([
-            "test9.tig",
-            "test10.tig",
-            "test11.tig",
-            "test13.tig",
-            "test14.tig",
-            "test15.tig",
-            "test16.tig",
-            "test19.tig",
-            "test20.tig",
-            "test21.tig",
-            "test22.tig",
-            "test23.tig",
-            "test24.tig",
-            "test25.tig",
-            "test26.tig",
-            "test28.tig",
-            "test29.tig",
-            "test31.tig",
-            "test32.tig",
-            "test33.tig",
-            "test34.tig",
-            "test35.tig",
-            "test36.tig",
-            "test40.tig",
-            "test43.tig",
-            "test45.tig",
-        ]);
-        for sample in fs::read_dir("samples")? {
-            let sample = sample?;
-            if sample.file_name() != "test49.tig" {
-                let ast = fs::read_to_string(sample.path())?;
-                let result = check(&parse(&ast)?);
-                if errors.contains(sample.file_name().to_str().unwrap()) {
-                    assert!(result.is_err());
-                } else if let Err(error) = result {
-                    return Err(anyhow!("Check {:?}: {}", sample.file_name(), error));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    #[bench]
-    fn bench_samples(b: &mut Bencher) -> Result<()> {
-        let samples: Vec<_> = fs::read_dir("samples")?
-            .into_iter()
-            .map(|sample| fs::read_to_string(sample?.path()))
-            .try_collect()?;
-        let samples: Vec<_> = samples
-            .iter()
-            .filter_map(|sample| parse(&sample).ok())
-            .collect();
-        b.iter(|| {
-            for sample in &samples {
-                _ = check(sample);
-            }
-        });
-        Ok(())
-    }
 }

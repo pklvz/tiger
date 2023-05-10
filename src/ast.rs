@@ -1,5 +1,7 @@
-use crate::parser::{parse_expr, parse_lvalue, Rule};
-use anyhow::Error;
+use crate::{
+    error::Error,
+    parser::{parse_expr, parse_lvalue, Rule},
+};
 use pest::iterators::Pair;
 use std::{borrow::Cow, fmt::Display, ops::Deref};
 

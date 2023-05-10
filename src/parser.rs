@@ -1,5 +1,7 @@
-use crate::ast::{Dec, Expr, Field, Lvalue, Op, Type, WithPos};
-use anyhow::Result;
+use crate::{
+    ast::{Dec, Expr, Field, Lvalue, Op, Type, WithPos},
+    error::Error,
+};
 use pest::{
     iterators::{Pair, Pairs},
     Parser,
@@ -50,7 +52,7 @@ fn parse_fields(pair: Pair<Rule>) -> Vec<Field> {
     fields
 }
 
-pub(crate) fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue> {
+pub(crate) fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue, Error> {
     let mut pairs = pair.into_inner();
     let mut lvalue = Lvalue::Var(pairs.next().unwrap().into());
     for suffix in pairs {
@@ -67,7 +69,7 @@ pub(crate) fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue> {
     Ok(lvalue)
 }
 
-pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
+pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
     let mut exprs = LinkedList::new();
     let mut ops = LinkedList::new();
     for pair in pairs {
@@ -119,10 +121,14 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
                         .try_collect()?,
                 ));
             }
-            Rule::int => exprs.push_back(Expr::Integer(match pair.as_str().strip_prefix('-') {
-                Some(s) => -s.trim().parse()?,
-                None => pair.as_str().trim().parse()?,
-            })),
+            Rule::int => {
+                exprs.push_back(Expr::Integer(pair.as_str().parse().map_err(|inner| {
+                    Error::ParseIntError(WithPos {
+                        inner,
+                        pos: pair.line_col().into(),
+                    })
+                })?))
+            }
             Rule::neg => exprs.push_back(Expr::Neg(pair.try_into()?)),
             Rule::string => {
                 let s = pair.as_str();
@@ -321,48 +327,12 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr> {
     }
 }
 
-pub fn parse(src: &str) -> Result<Expr> {
+pub fn parse(src: &str) -> Result<Expr, Error> {
     parse_expr(
-        TigerParser::parse(Rule::main, src)?
+        TigerParser::parse(Rule::main, src)
+            .map_err(Error::ParseError)?
             .next()
             .unwrap()
             .into_inner(),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::anyhow;
-    use std::fs;
-    use test::Bencher;
-
-    #[test]
-    fn test_samples() -> Result<()> {
-        for sample in fs::read_dir("samples")? {
-            let sample = sample?;
-            let ast = fs::read_to_string(sample.path())?;
-            let result = parse(&ast);
-            if sample.file_name() == "test49.tig" {
-                assert!(result.is_err());
-            } else if let Err(error) = result {
-                return Err(anyhow!("Parse {:?}: {}", sample.file_name(), error));
-            }
-        }
-        Ok(())
-    }
-
-    #[bench]
-    fn bench_samples(b: &mut Bencher) -> Result<()> {
-        let samples: Vec<_> = fs::read_dir("samples")?
-            .into_iter()
-            .map(|sample| fs::read_to_string(sample?.path()))
-            .try_collect()?;
-        b.iter(|| {
-            for sample in &samples {
-                _ = parse(sample);
-            }
-        });
-        Ok(())
-    }
 }

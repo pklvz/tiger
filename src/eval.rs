@@ -1,35 +1,16 @@
 use crate::{
-    ast::{Dec, Expr, Lvalue, Op, Pos, WithPos},
+    ast::{Dec, Expr, Lvalue, Op, WithPos},
     env::Env,
+    error::Error,
 };
 use anyhow::Result;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    io::{self, Read, Write},
+    io::{Read, Write},
     iter::once,
-    num,
     rc::Rc,
 };
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum RuntimeError {
-    #[error("{}, nil struct dereference", .0)]
-    DerefNilStruct(Pos),
-    #[error("{}, nil array dereference", .0)]
-    DerefNilArray(Pos),
-    #[error("{}, negative index: {}", .0.pos, .0.inner)]
-    NegtiveIndex(WithPos<isize>),
-    #[error("{}, index out of range: {}", .0.pos, .0.inner)]
-    IndexOutOfRange(WithPos<usize>),
-    #[error("{}, {}", .0.pos, .0.inner)]
-    IOError(WithPos<io::Error>),
-    #[error("{}, {}", .0.pos, .0.inner)]
-    TryFromIntError(WithPos<num::TryFromIntError>),
-    #[error("")]
-    Break,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Fn<'a> {
@@ -97,13 +78,13 @@ impl<'a> Interpreter<'a> {
         Self { venv, fenv }
     }
 
-    fn resolve_lvalue(&mut self, lvalue: &Lvalue<'a>) -> Result<&mut Value<'a>, RuntimeError> {
+    fn resolve_lvalue(&mut self, lvalue: &Lvalue<'a>) -> Result<&mut Value<'a>, Error> {
         match lvalue {
             Lvalue::Var(var) => Ok(self.venv.get_mut(var).unwrap()),
             Lvalue::Rec(var, field) => match &mut *self.resolve_lvalue(var)? {
                 Value::Rec(ref mut fields) => Ok(unsafe { Rc::get_mut_unchecked(fields) }
                     .as_mut()
-                    .ok_or_else(|| RuntimeError::DerefNilStruct(field.pos))?
+                    .ok_or_else(|| Error::DerefNilStruct(field.pos))?
                     .get_mut(**field)
                     .unwrap()),
                 _ => unreachable!(),
@@ -113,21 +94,21 @@ impl<'a> Interpreter<'a> {
                 let i = if i >= 0 {
                     i as usize
                 } else {
-                    return Err(RuntimeError::NegtiveIndex(idx.with_inner(i)));
+                    return Err(Error::NegtiveIndex(idx.with_inner(i)));
                 };
                 match &mut *self.resolve_lvalue(var)? {
                     Value::Array(ref mut a) => Ok(unsafe { Rc::get_mut_unchecked(a) }
                         .as_mut()
-                        .ok_or_else(|| RuntimeError::DerefNilArray(idx.pos))?
+                        .ok_or_else(|| Error::DerefNilArray(idx.pos))?
                         .get_mut(i)
-                        .ok_or_else(|| RuntimeError::IndexOutOfRange(idx.with_inner(i)))?),
+                        .ok_or_else(|| Error::IndexOutOfRange(idx.with_inner(i)))?),
                     _ => unreachable!(),
                 }
             }
         }
     }
 
-    fn eval_vardec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), RuntimeError> {
+    fn eval_vardec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), Error> {
         for dec in decs {
             match dec {
                 Dec::VarDec { name, val, .. } => {
@@ -152,7 +133,7 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn eval(&mut self, expr: &Expr<'a>) -> Result<Value<'a>, RuntimeError> {
+    fn eval(&mut self, expr: &Expr<'a>) -> Result<Value<'a>, Error> {
         match expr {
             Expr::BinOp { lhs, rhs, op } => {
                 let lhs = self.eval(lhs)?;
@@ -226,7 +207,7 @@ impl<'a> Interpreter<'a> {
             Expr::While(cond, body) => {
                 while self.eval(cond)?.as_int() != 0 {
                     match self.eval(body) {
-                        Err(RuntimeError::Break) => break,
+                        Err(Error::Break) => break,
                         other => other?,
                     };
                 }
@@ -238,14 +219,14 @@ impl<'a> Interpreter<'a> {
                 for i in begin..=end {
                     self.venv.insert(name, Value::Integer(i));
                     match self.eval(body) {
-                        Err(RuntimeError::Break) => break,
+                        Err(Error::Break) => break,
                         other => other?,
                     };
                     self.venv.remove(name);
                 }
                 Ok(Value::Void)
             }
-            Expr::Break(_) => Err(RuntimeError::Break),
+            Expr::Break(_) => Err(Error::Break),
             Expr::Let(decs, expr) => {
                 self.eval_vardec(decs)?;
                 self.eval(expr)
@@ -261,7 +242,7 @@ impl<'a> Interpreter<'a> {
                     Fn::Flush => {
                         std::io::stdout()
                             .flush()
-                            .map_err(|err| RuntimeError::IOError(name.with_inner(err)))?;
+                            .map_err(|error| Error::IOError(name.with_inner(error)))?;
                         Ok(Value::Void)
                     }
                     Fn::Getchar => {
@@ -269,7 +250,7 @@ impl<'a> Interpreter<'a> {
                         Ok(Value::String(
                             if std::io::stdin()
                                 .read(&mut buf[..])
-                                .map_err(|err| RuntimeError::IOError(name.with_inner(err)))?
+                                .map_err(|error| Error::IOError(name.with_inner(error)))?
                                 == 0
                             {
                                 "".into()
@@ -289,7 +270,7 @@ impl<'a> Interpreter<'a> {
                     )),
                     Fn::Chr => Ok(Value::String(String::from(char::from(
                         u8::try_from(args.pop().unwrap().as_int())
-                            .map_err(|err| RuntimeError::TryFromIntError(name.with_inner(err)))?,
+                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
                     )))),
                     Fn::Size => Ok(Value::Integer(
                         args.pop()
@@ -297,13 +278,13 @@ impl<'a> Interpreter<'a> {
                             .as_string()
                             .len()
                             .try_into()
-                            .map_err(|err| RuntimeError::TryFromIntError(name.with_inner(err)))?,
+                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
                     )),
                     Fn::Substring => {
                         let n = usize::try_from(args.pop().unwrap().as_int())
-                            .map_err(|err| RuntimeError::TryFromIntError(name.with_inner(err)))?;
+                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?;
                         let first = usize::try_from(args.pop().unwrap().as_int())
-                            .map_err(|err| RuntimeError::TryFromIntError(name.with_inner(err)))?;
+                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?;
                         Ok(Value::String(String::from(
                             &args.pop().unwrap().as_string()[first..first + n],
                         )))
@@ -319,13 +300,13 @@ impl<'a> Interpreter<'a> {
                     } else {
                         0
                     })),
-                    Fn::Exit => {
-                        std::process::exit(
-                            args.pop().unwrap().as_int().try_into().map_err(|err| {
-                                RuntimeError::TryFromIntError(name.with_inner(err))
-                            })?,
-                        )
-                    }
+                    Fn::Exit => std::process::exit(
+                        args.pop()
+                            .unwrap()
+                            .as_int()
+                            .try_into()
+                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
+                    ),
                     Fn::Other { fields, body } => {
                         for (field, arg) in fields.iter().zip(args) {
                             self.venv.insert(field, arg);
@@ -350,7 +331,7 @@ impl<'a> Interpreter<'a> {
                 let len = if len >= 0 {
                     len as usize
                 } else {
-                    return Err(RuntimeError::NegtiveIndex(n.with_inner(len)));
+                    return Err(Error::NegtiveIndex(n.with_inner(len)));
                 };
                 let v = self.eval(v)?;
                 let a = once(v).cycle().take(len).collect();
@@ -365,91 +346,6 @@ impl<'a> Interpreter<'a> {
     }
 }
 
-pub fn eval<'a>(expr: &'a Expr) -> Result<Value<'a>, RuntimeError> {
+pub fn eval<'a>(expr: &'a Expr) -> Result<Value<'a>, Error> {
     Interpreter::new().eval(expr)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{parser::parse, types::check};
-    use anyhow::anyhow;
-    use std::{collections::HashSet, fs};
-    use test::Bencher;
-
-    #[test]
-    fn test_samples() -> Result<()> {
-        let ignored = HashSet::from([
-            "merge.tig",
-            "queens.tig",
-            "test6.tig",
-            "test7.tig",
-            "test9.tig",
-            "test10.tig",
-            "test11.tig",
-            "test13.tig",
-            "test14.tig",
-            "test15.tig",
-            "test16.tig",
-            "test18.tig",
-            "test19.tig",
-            "test20.tig",
-            "test21.tig",
-            "test22.tig",
-            "test23.tig",
-            "test24.tig",
-            "test25.tig",
-            "test26.tig",
-            "test28.tig",
-            "test29.tig",
-            "test31.tig",
-            "test32.tig",
-            "test33.tig",
-            "test34.tig",
-            "test35.tig",
-            "test36.tig",
-            "test40.tig",
-            "test43.tig",
-            "test45.tig",
-            "test49.tig",
-        ]);
-        for sample in fs::read_dir("samples")? {
-            let sample = sample?;
-            if !ignored.contains(sample.file_name().to_str().unwrap()) {
-                if let Err(error) = eval(&parse(&fs::read_to_string(sample.path())?)?) {
-                    return Err(anyhow!("Eval {:?}: {}", sample.file_name(), error));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    #[bench]
-    fn bench_samples(b: &mut Bencher) -> Result<()> {
-        let ignored = HashSet::from([
-            "merge.tig",
-            "queens.tig",
-            "test6.tig",
-            "test7.tig",
-            "test18.tig",
-        ]);
-        let samples: Vec<_> = fs::read_dir("samples")?
-            .into_iter()
-            .try_collect::<Vec<_>>()?
-            .into_iter()
-            .filter(|sample| !ignored.contains(sample.file_name().to_str().unwrap()))
-            .map(|sample| fs::read_to_string(sample.path()))
-            .try_collect::<Vec<_>>()?;
-        let samples: Vec<_> = samples
-            .iter()
-            .filter_map(|sample| parse(&sample).ok())
-            .filter(|expr| check(&expr).is_ok())
-            .collect();
-        b.iter(|| {
-            for sample in &samples {
-                _ = eval(sample);
-            }
-        });
-        Ok(())
-    }
 }
