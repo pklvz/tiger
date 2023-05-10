@@ -1,3 +1,4 @@
+use crate::{ast::WithPos, error::Error};
 use std::collections::{HashMap, LinkedList};
 
 pub struct Env<'a, T>(pub(crate) HashMap<&'a str, LinkedList<T>>);
@@ -20,8 +21,18 @@ impl<'a, T> Env<'a, T> {
         Some(val)
     }
 
-    pub fn get(&self, name: &str) -> Option<&T> {
-        self.0.get(name).map(|vals| vals.front().unwrap())
+    pub fn get(&self, name: &WithPos<&str>) -> Result<&T, Error> {
+        self.0
+            .get(name.inner)
+            .map(|vals| vals.front().unwrap())
+            .ok_or_else(|| Error::NotDefined(name.into()))
+    }
+
+    pub fn gets(&self, name: &WithPos<String>) -> Result<&T, Error> {
+        self.0
+            .get(name.inner.as_str())
+            .map(|vals| vals.front().unwrap())
+            .ok_or_else(|| Error::NotDefined(name.clone()))
     }
 
     pub fn get_mut(&mut self, name: &str) -> Option<&mut T> {

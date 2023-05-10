@@ -199,15 +199,6 @@ impl From<&WithPos<&str>> for WithPos<String> {
     }
 }
 
-impl From<WithPos<&str>> for WithPos<String> {
-    fn from(value: WithPos<&str>) -> Self {
-        WithPos {
-            pos: value.pos,
-            inner: value.inner.into(),
-        }
-    }
-}
-
 impl<'a> From<Pair<'a, Rule>> for WithPos<&'a str> {
     fn from(value: Pair<'a, Rule>) -> Self {
         WithPos {
