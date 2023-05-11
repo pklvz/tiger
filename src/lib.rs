@@ -44,6 +44,7 @@ mod tests {
         test_src(file_name, &src)
     }
 
+    #[rustfmt::skip]
     #[test]
     fn test_samples() {
         assert_matches!(test_sample("merge.tig"), Ok(_));
@@ -57,85 +58,37 @@ mod tests {
         assert_matches!(test_sample("test7.tig"), Ok(_));
         assert_matches!(test_sample("test8.tig"), Ok(_));
         assert_matches!(test_sample("test9.tig"), Err(Error::MismatchedTypes { .. }));
-        assert_matches!(
-            test_sample("test10.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
-        assert_matches!(
-            test_sample("test11.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
+        assert_matches!(test_sample("test10.tig"), Err(Error::MismatchedTypes { .. }));
+        assert_matches!(test_sample("test11.tig"), Err(Error::MismatchedTypes { .. }));
         assert_matches!(test_sample("test12.tig"), Ok(_));
-        assert_matches!(
-            test_sample("test13.tig"),
-            Err(Error::UnsupportedOperandType { .. })
-        );
-        assert_matches!(
-            test_sample("test14.tig"),
-            Err(Error::UnsupportedOperandType { .. })
-        );
-        assert_matches!(
-            test_sample("test15.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
+        assert_matches!(test_sample("test13.tig"), Err(Error::UnsupportedOperandType { .. }));
+        assert_matches!(test_sample("test14.tig"), Err(Error::UnsupportedOperandType { .. }));
+        assert_matches!(test_sample("test15.tig"), Err(Error::MismatchedTypes { .. }));
         assert_matches!(test_sample("test16.tig"), Err(Error::RecursiveType(_)));
         assert_matches!(test_sample("test17.tig"), Ok(_));
         assert_matches!(test_sample("test18.tig"), Ok(_));
         assert_matches!(test_sample("test19.tig"), Err(Error::NotDefined(_)));
         assert_matches!(test_sample("test20.tig"), Err(Error::NotDefined(_)));
-        assert_matches!(
-            test_sample("test21.tig"),
-            Err(Error::UnsupportedOperandType { .. })
-        );
+        assert_matches!(test_sample("test21.tig"), Err(Error::UnsupportedOperandType { .. }));
         assert_matches!(test_sample("test22.tig"), Err(Error::NoSuchField(_)));
-        assert_matches!(
-            test_sample("test23.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
+        assert_matches!(test_sample("test23.tig"), Err(Error::MismatchedTypes { .. }));
         assert_matches!(test_sample("test24.tig"), Err(Error::NotArray(_)));
         assert_matches!(test_sample("test25.tig"), Err(Error::NotRecord(_)));
-        assert_matches!(
-            test_sample("test26.tig"),
-            Err(Error::UnsupportedOperandType { .. })
-        );
+        assert_matches!(test_sample("test26.tig"), Err(Error::UnsupportedOperandType { .. }));
         assert_matches!(test_sample("test27.tig"), Ok(_));
-        assert_matches!(
-            test_sample("test28.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
-        assert_matches!(
-            test_sample("test29.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
+        assert_matches!(test_sample("test28.tig"), Err(Error::MismatchedTypes { .. }));
+        assert_matches!(test_sample("test29.tig"), Err(Error::MismatchedTypes { .. }));
         assert_matches!(test_sample("test30.tig"), Ok(_));
-        assert_matches!(
-            test_sample("test31.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
-        assert_matches!(
-            test_sample("test32.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
+        assert_matches!(test_sample("test31.tig"), Err(Error::MismatchedTypes { .. }));
+        assert_matches!(test_sample("test32.tig"), Err(Error::MismatchedTypes { .. }));
         assert_matches!(test_sample("test33.tig"), Err(Error::NotDefined(_)));
-        assert_matches!(
-            test_sample("test34.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
-        assert_matches!(
-            test_sample("test35.tig"),
-            Err(Error::MismatchedArgumentNum { .. })
-        );
-        assert_matches!(
-            test_sample("test36.tig"),
-            Err(Error::MismatchedArgumentNum { .. })
-        );
+        assert_matches!(test_sample("test34.tig"), Err(Error::MismatchedTypes { .. }));
+        assert_matches!(test_sample("test35.tig"), Err(Error::MismatchedArgumentNum { .. }));
+        assert_matches!(test_sample("test36.tig"), Err(Error::MismatchedArgumentNum { .. }));
         assert_matches!(test_sample("test37.tig"), Ok(_));
         assert_matches!(test_sample("test38.tig"), Ok(_));
         assert_matches!(test_sample("test39.tig"), Ok(_));
-        assert_matches!(
-            test_sample("test40.tig"),
-            Err(Error::MismatchedTypes { .. })
-        );
+        assert_matches!(test_sample("test40.tig"), Err(Error::MismatchedTypes { .. }));
         assert_matches!(test_sample("test41.tig"), Ok(_));
         assert_matches!(test_sample("test42.tig"), Ok(_));
         assert_matches!(test_sample("test43.tig"), Err(Error::UnknownType(_)));
