@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::Parser;
 use std::fs;
 use tiger::{eval::eval, parser::parse, types::check};
@@ -10,16 +10,16 @@ struct Args {
     #[arg(short, long)]
     skip_type_check: bool,
 
-    filename: String,
+    file_name: String,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let src = fs::read_to_string(args.filename)?;
-    let ast = parse(&src).map_err(|error| anyhow!("syntax error: {}", error))?;
+    let src = fs::read_to_string(args.file_name)?;
+    let ast = parse(&src)?;
     if !args.skip_type_check {
-        check(&ast).map_err(|error| anyhow!("type error: {}", error))?;
+        check(&ast)?;
     }
-    eval(&ast).map_err(|error| anyhow!("runtime error: {}", error))?;
+    eval(&ast)?;
     Ok(())
 }

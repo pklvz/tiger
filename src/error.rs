@@ -1,7 +1,6 @@
 use crate::{
     ast::{Op, Pos, WithPos},
     parser::Rule,
-    types::RcType,
 };
 use std::{io, num};
 use thiserror::Error;
@@ -13,24 +12,24 @@ pub enum Error {
     #[error("{}, {}", .0.pos, .0.inner)]
     ParseIntError(WithPos<num::ParseIntError>),
 
-    #[error("{}, unsupported operand type(s) for {}: {lty} and {rty}", .op.pos, .op.inner)]
+    #[error("{}, unsupported operand type(s) {lty} and {rty} for {}", .op.pos, .op.inner)]
     UnsupportedOperandType {
         op: WithPos<Op>,
-        lty: RcType,
-        rty: RcType,
+        lty: String,
+        rty: String,
     },
-    #[error("{}, mismatched types: expected {expected}, found {}", .found.pos, .found.inner)]
+    #[error("{}, type mismatch, expected {expected}, found {}", .found.pos, .found.inner)]
     MismatchedTypes {
-        expected: RcType,
-        found: WithPos<RcType>,
+        expected: String,
+        found: WithPos<String>,
     },
-    #[error("{}, {} takes {expected} positional argument(s) but {found} were given", .name.pos, .name.inner)]
+    #[error("{}, {} takes {expected} argument(s) but {found} were given", .name.pos, .name.inner)]
     MismatchedArgumentNum {
         name: WithPos<String>,
         expected: usize,
         found: usize,
     },
-    #[error("{}, recursive type found: {}", .0.pos, .0.inner)]
+    #[error("{}, recursive type {}", .0.pos, .0.inner)]
     RecursiveType(WithPos<String>),
     #[error("{}, unknown type of {}", .0.pos, .0.inner)]
     UnknownType(WithPos<String>),
@@ -51,9 +50,9 @@ pub enum Error {
     DerefNilStruct(Pos),
     #[error("{}, nil array dereference", .0)]
     DerefNilArray(Pos),
-    #[error("{}, negative index: {}", .0.pos, .0.inner)]
+    #[error("{}, negative index {}", .0.pos, .0.inner)]
     NegtiveIndex(WithPos<isize>),
-    #[error("{}, index out of range: {}", .0.pos, .0.inner)]
+    #[error("{}, index {} out of range", .0.pos, .0.inner)]
     IndexOutOfRange(WithPos<usize>),
     #[error("{}, {}", .0.pos, .0.inner)]
     IOError(WithPos<io::Error>),

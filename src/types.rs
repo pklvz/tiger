@@ -50,8 +50,8 @@ impl WithPos<RcType> {
                 | (Type::Nil, Type::Rec { .. })
                 | (Type::Nil, Type::Array { .. }) => Ok(()),
                 _ => Err(Error::MismatchedTypes {
-                    expected: expected.clone(),
-                    found: self.clone(),
+                    expected: format!("{}", expected),
+                    found: self.with_inner(format!("{}", self.inner)),
                 }),
             }
         }
@@ -352,7 +352,11 @@ impl<'a> Checker<'a> {
                     | (Op::Ne | Op::Eq, Type::Rec { .. }, Type::Rec { .. })
                     | (Op::Ne | Op::Eq, Type::Rec { .. }, Type::Nil)
                     | (Op::Ne | Op::Eq, Type::Nil, Type::Rec { .. }) => Ok(self.int.clone()),
-                    _ => Err(Error::UnsupportedOperandType { op: *op, lty, rty }),
+                    _ => Err(Error::UnsupportedOperandType {
+                        op: *op,
+                        lty: format!("{}", lty),
+                        rty: format!("{}", rty),
+                    }),
                 }
             }
             Expr::Nil => Ok(self.nil.clone()),
