@@ -245,25 +245,21 @@ impl<'a> Interpreter<'a> {
             Expr::FnCall { name, args } => {
                 let val = self.fenv.get(name).unwrap().clone();
                 let mut args: Vec<_> = args.into_iter().map(|arg| self.eval(arg)).try_collect()?;
+                let ioe_op = |error| Error::IOError(name.with_inner(error));
+                let tie_op = |error| Error::TryFromIntError(name.with_inner(error));
                 match val {
                     Fn::Print => {
                         print!("{}", args.pop().unwrap().as_string());
                         Ok(Value::Void)
                     }
                     Fn::Flush => {
-                        std::io::stdout()
-                            .flush()
-                            .map_err(|error| Error::IOError(name.with_inner(error)))?;
+                        std::io::stdout().flush().map_err(ioe_op)?;
                         Ok(Value::Void)
                     }
                     Fn::Getchar => {
                         let mut buf = [0u8];
                         Ok(Value::String(
-                            if std::io::stdin()
-                                .read(&mut buf[..])
-                                .map_err(|error| Error::IOError(name.with_inner(error)))?
-                                == 0
-                            {
+                            if std::io::stdin().read(&mut buf[..]).map_err(ioe_op)? == 0 {
                                 "".into()
                             } else {
                                 String::from(char::from(buf[0]))
@@ -280,8 +276,7 @@ impl<'a> Interpreter<'a> {
                             .unwrap_or(-1),
                     )),
                     Fn::Chr => Ok(Value::String(String::from(char::from(
-                        u8::try_from(args.pop().unwrap().as_int())
-                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
+                        u8::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?,
                     )))),
                     Fn::Size => Ok(Value::Integer(
                         args.pop()
@@ -289,13 +284,12 @@ impl<'a> Interpreter<'a> {
                             .as_string()
                             .len()
                             .try_into()
-                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
+                            .map_err(tie_op)?,
                     )),
                     Fn::Substring => {
-                        let n = usize::try_from(args.pop().unwrap().as_int())
-                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?;
-                        let first = usize::try_from(args.pop().unwrap().as_int())
-                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?;
+                        let n = usize::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?;
+                        let first =
+                            usize::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?;
                         Ok(Value::String(String::from(
                             &args.pop().unwrap().as_string()[first..first + n],
                         )))
@@ -306,18 +300,12 @@ impl<'a> Interpreter<'a> {
                         s1.push_str(&s2);
                         Ok(Value::String(s1))
                     }
-                    Fn::Not => Ok(Value::Integer(if args.pop().unwrap().as_int() == 0 {
-                        1
-                    } else {
-                        0
-                    })),
-                    Fn::Exit => std::process::exit(
-                        args.pop()
-                            .unwrap()
-                            .as_int()
-                            .try_into()
-                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
-                    ),
+                    Fn::Not => Ok(Value::Integer(
+                        !(args.pop().unwrap().as_int() != 0) as isize,
+                    )),
+                    Fn::Exit => {
+                        std::process::exit(args.pop().unwrap().as_int().try_into().map_err(tie_op)?)
+                    }
                     Fn::Other { fields, body } => {
                         for (field, arg) in fields.iter().zip(args) {
                             self.venv.insert(field, arg);
