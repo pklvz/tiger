@@ -5,6 +5,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt::Debug,
     io::{Read, Write},
@@ -34,10 +35,10 @@ pub enum Fn<'a> {
 pub enum Value<'a> {
     Void,
     Integer(isize),
-    String(String),
+    String(Cow<'a, str>),
     Nil,
-    Array(Rc<Option<Vec<Value<'a>>>>),
-    Rec(Rc<Option<HashMap<&'a str, Value<'a>>>>),
+    Array(Rc<Vec<Value<'a>>>),
+    Rec(Rc<HashMap<&'a str, Value<'a>>>),
 }
 
 impl<'a> Value<'a> {
@@ -48,7 +49,7 @@ impl<'a> Value<'a> {
         }
     }
 
-    fn as_string(self) -> String {
+    fn as_string(self) -> Cow<'a, str> {
         match self {
             Value::String(string) => string,
             _ => unreachable!(),
@@ -78,30 +79,28 @@ impl<'a> Interpreter<'a> {
         Self { venv, fenv }
     }
 
-    fn resolve_lvalue(&mut self, lvalue: &Lvalue<'a>) -> Result<&mut Value<'a>, Error> {
+    fn eval_lvalue(&mut self, lvalue: &Lvalue<'a>) -> Result<&mut Value<'a>, Error> {
         match lvalue {
             Lvalue::Var(var) => Ok(self.venv.get_mut(var).unwrap()),
-            Lvalue::Rec(var, field) => match &mut *self.resolve_lvalue(var)? {
-                Value::Rec(ref mut fields) => Ok(unsafe { Rc::get_mut_unchecked(fields) }
-                    .as_mut()
-                    .ok_or_else(|| Error::DerefNilStruct(field.pos))?
+            Lvalue::Rec(var, field) => match &mut *self.eval_lvalue(var)? {
+                Value::Rec(fields) => Ok(unsafe { Rc::get_mut_unchecked(fields) }
                     .get_mut(**field)
                     .unwrap()),
+                Value::Nil => Err(Error::DerefNilStruct(field.pos)),
                 _ => unreachable!(),
             },
-            Lvalue::Idx(var, idx) => {
-                let i = self.eval(idx)?.as_int();
+            Lvalue::Idx(var, index) => {
+                let i = self.eval(index)?.as_int();
                 let i = if i >= 0 {
                     i as usize
                 } else {
-                    return Err(Error::NegtiveIndex(idx.with_inner(i)));
+                    return Err(Error::NegtiveIndex(index.with_inner(i)));
                 };
-                match &mut *self.resolve_lvalue(var)? {
-                    Value::Array(ref mut a) => Ok(unsafe { Rc::get_mut_unchecked(a) }
-                        .as_mut()
-                        .ok_or_else(|| Error::DerefNilArray(idx.pos))?
+                match &mut *self.eval_lvalue(var)? {
+                    Value::Array(arr) => Ok(unsafe { Rc::get_mut_unchecked(arr) }
                         .get_mut(i)
-                        .ok_or_else(|| Error::IndexOutOfRange(idx.with_inner(i)))?),
+                        .ok_or_else(|| Error::IndexOutOfRange(index.with_inner(i)))?),
+                    Value::Nil => Err(Error::DerefNilArray(index.pos)),
                     _ => unreachable!(),
                 }
             }
@@ -165,17 +164,17 @@ impl<'a> Interpreter<'a> {
 
                     (Value::Array(lhs), Value::Array(rhs), Op::Ne) => (lhs != rhs) as isize,
                     (Value::Array(lhs), Value::Array(rhs), Op::Eq) => (lhs == rhs) as isize,
-                    (Value::Array(lhs), Value::Nil, Op::Ne) => lhs.is_some() as isize,
-                    (Value::Array(lhs), Value::Nil, Op::Eq) => lhs.is_none() as isize,
-                    (Value::Nil, Value::Array(rhs), Op::Ne) => rhs.is_some() as isize,
-                    (Value::Nil, Value::Array(rhs), Op::Eq) => rhs.is_none() as isize,
+                    (Value::Array(_), Value::Nil, Op::Ne) => 1,
+                    (Value::Array(_), Value::Nil, Op::Eq) => 0,
+                    (Value::Nil, Value::Array(_), Op::Ne) => 1,
+                    (Value::Nil, Value::Array(_), Op::Eq) => 0,
 
                     (Value::Rec(lhs), Value::Rec(rhs), Op::Ne) => (lhs != rhs) as isize,
                     (Value::Rec(lhs), Value::Rec(rhs), Op::Eq) => (lhs == rhs) as isize,
-                    (Value::Rec(lhs), Value::Nil, Op::Ne) => lhs.is_some() as isize,
-                    (Value::Rec(lhs), Value::Nil, Op::Eq) => lhs.is_none() as isize,
-                    (Value::Nil, Value::Rec(rhs), Op::Ne) => rhs.is_some() as isize,
-                    (Value::Nil, Value::Rec(rhs), Op::Eq) => rhs.is_none() as isize,
+                    (Value::Rec(_), Value::Nil, Op::Ne) => 1,
+                    (Value::Rec(_), Value::Nil, Op::Eq) => 0,
+                    (Value::Nil, Value::Rec(_), Op::Ne) => 1,
+                    (Value::Nil, Value::Rec(_), Op::Eq) => 0,
 
                     (Value::Nil, Value::Nil, Op::Ne) => 0,
                     (Value::Nil, Value::Nil, Op::Eq) => 1,
@@ -195,7 +194,7 @@ impl<'a> Interpreter<'a> {
                 }
             },
             Expr::Integer(int) => Ok(Value::Integer(*int)),
-            Expr::String(string) => Ok(Value::String(string.to_string())),
+            Expr::String(string) => Ok(Value::String(string.clone())),
             Expr::If(cond, t, f) => {
                 let cond = self.eval(cond)?.as_int();
                 match f {
@@ -233,14 +232,14 @@ impl<'a> Interpreter<'a> {
             Expr::Break(_) => Err(Error::Break),
             Expr::Let(decs, expr) => {
                 let (vnames, fnames) = self.eval_vardec(decs)?;
-                let value = self.eval(expr);
+                let val = self.eval(expr);
                 for vname in vnames {
                     self.venv.remove(&vname);
                 }
                 for fname in fnames {
                     self.fenv.remove(&fname);
                 }
-                value
+                val
             }
             Expr::FnCall { name, args } => {
                 let val = self.fenv.get(name).unwrap().clone();
@@ -260,9 +259,9 @@ impl<'a> Interpreter<'a> {
                         let mut buf = [0u8];
                         Ok(Value::String(
                             if std::io::stdin().read(&mut buf[..]).map_err(ioe_op)? == 0 {
-                                "".into()
+                                Cow::Borrowed("")
                             } else {
-                                String::from(char::from(buf[0]))
+                                Cow::Owned(String::from(char::from(buf[0])))
                             },
                         ))
                     }
@@ -275,9 +274,9 @@ impl<'a> Interpreter<'a> {
                             .map(isize::from)
                             .unwrap_or(-1),
                     )),
-                    Fn::Chr => Ok(Value::String(String::from(char::from(
+                    Fn::Chr => Ok(Value::String(Cow::Owned(String::from(char::from(
                         u8::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?,
-                    )))),
+                    ))))),
                     Fn::Size => Ok(Value::Integer(
                         args.pop()
                             .unwrap()
@@ -290,15 +289,15 @@ impl<'a> Interpreter<'a> {
                         let n = usize::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?;
                         let first =
                             usize::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?;
-                        Ok(Value::String(String::from(
+                        Ok(Value::String(Cow::Owned(String::from(
                             &args.pop().unwrap().as_string()[first..first + n],
-                        )))
+                        ))))
                     }
                     Fn::Concat => {
                         let s2 = args.pop().unwrap().as_string();
-                        let mut s1 = args.pop().unwrap().as_string();
+                        let mut s1 = args.pop().unwrap().as_string().to_string();
                         s1.push_str(&s2);
-                        Ok(Value::String(s1))
+                        Ok(Value::String(Cow::Owned(s1)))
                     }
                     Fn::Not => Ok(Value::Integer(
                         !(args.pop().unwrap().as_int() != 0) as isize,
@@ -323,7 +322,7 @@ impl<'a> Interpreter<'a> {
                 for (field, val) in fields {
                     rec.insert(field.inner, self.eval(val)?);
                 }
-                Ok(Value::Rec(Rc::new(Some(rec))))
+                Ok(Value::Rec(Rc::new(rec)))
             }
             Expr::Array { n, v, .. } => {
                 let len = self.eval(n)?.as_int();
@@ -333,14 +332,14 @@ impl<'a> Interpreter<'a> {
                     return Err(Error::NegtiveIndex(n.with_inner(len)));
                 };
                 let v = self.eval(v)?;
-                let a = once(v).cycle().take(len).collect();
-                Ok(Value::Array(Rc::new(Some(a))))
+                let arr = once(v).cycle().take(len).collect();
+                Ok(Value::Array(Rc::new(arr)))
             }
             Expr::Assign(lvalue, expr) => {
-                *self.resolve_lvalue(lvalue)? = self.eval(expr)?;
+                *self.eval_lvalue(lvalue)? = self.eval(expr)?;
                 Ok(Value::Void)
             }
-            Expr::Lvalue(lvalue) => self.resolve_lvalue(lvalue).cloned(),
+            Expr::Lvalue(lvalue) => self.eval_lvalue(lvalue).cloned(),
         }
     }
 }

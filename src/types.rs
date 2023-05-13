@@ -1,5 +1,5 @@
 use crate::{
-    ast::{self, Dec, Expr, Lvalue, Op, Pos, WithPos},
+    ast::{self, Dec, Expr, Lvalue, Op, WithPos},
     env::Env,
     error::Error,
 };
@@ -40,7 +40,7 @@ impl PartialEq for RcType {
 }
 
 impl WithPos<RcType> {
-    fn expect<'a>(&self, expected: &RcType) -> Result<(), Error> {
+    fn expect(&self, expected: &RcType) -> Result<(), Error> {
         if &**self == expected {
             Ok(())
         } else {
@@ -145,31 +145,24 @@ impl<'a> Checker<'a> {
 
     fn resolve_lvalue(
         &mut self,
-        lvalue: &Lvalue<'a>,
-        pos: Pos,
+        lvalue: &WithPos<Lvalue<'a>>,
         breakable: bool,
     ) -> Result<RcType, Error> {
-        match lvalue {
+        match &**lvalue {
             Lvalue::Var(var) => Ok(self.venv.get(var)?.clone()),
-            Lvalue::Rec(var, field) => match &*self.resolve_lvalue(var, pos, breakable)? {
+            Lvalue::Rec(var, field) => match &*self.resolve_lvalue(var, breakable)? {
                 Type::Rec { fields, .. } => Ok(fields
                     .get(**field)
                     .ok_or_else(|| Error::NoSuchField(field.into()))?
                     .clone()),
-                _ => Err(Error::NotRecord(WithPos {
-                    inner: var.to_string(),
-                    pos,
-                })),
+                _ => Err(Error::NotRecord(lvalue.with_inner(var.to_string()))),
             },
-            Lvalue::Idx(var, idx) => match &*self.resolve_lvalue(var, pos, breakable)? {
+            Lvalue::Idx(var, index) => match &*self.resolve_lvalue(var, breakable)? {
                 Type::Array { ty, .. } => {
-                    self.resolve_with_pos(idx, breakable)?.expect(&self.int)?;
+                    self.resolve_with_pos(index, breakable)?.expect(&self.int)?;
                     Ok(ty.clone())
                 }
-                _ => Err(Error::NotArray(WithPos {
-                    inner: var.to_string(),
-                    pos,
-                })),
+                _ => Err(Error::NotArray(lvalue.with_inner(var.to_string()))),
             },
         }
     }
@@ -179,7 +172,7 @@ impl<'a> Checker<'a> {
         for dec in decs {
             if let Dec::TyDec(name, ty) = dec {
                 tnames.push(name.to_string());
-                let resolve = |ty: &WithPos<&str>| {
+                let resolve = |ty| {
                     self.tenv
                         .get(ty)
                         .cloned()
@@ -416,7 +409,7 @@ impl<'a> Checker<'a> {
                 self.resolve_tydec()?;
                 let (vnames, fnames) = self.resolve_vardec(decs, breakable)?;
                 self.resolve_fn_body(decs)?;
-                let value = self.resolve(expr, breakable);
+                let val = self.resolve(expr, breakable);
                 for tname in tnames {
                     self.tenv.remove(&tname);
                 }
@@ -426,7 +419,7 @@ impl<'a> Checker<'a> {
                 for fname in fnames {
                     self.venv.remove(&fname);
                 }
-                value
+                val
             }
             Expr::FnCall { name, args } => {
                 let ty = self.venv.get(name)?.clone();
@@ -452,10 +445,10 @@ impl<'a> Checker<'a> {
                 match &*t {
                     Type::Rec { fields: fs, .. } => {
                         for (name, val) in fields {
-                            self.resolve_with_pos(val, breakable)?.expect(
-                                fs.get(**name)
-                                    .ok_or_else(|| Error::NoSuchField(name.into()))?,
-                            )?;
+                            let expected = fs
+                                .get(**name)
+                                .ok_or_else(|| Error::NoSuchField(name.into()))?;
+                            self.resolve_with_pos(val, breakable)?.expect(expected)?;
                         }
                         Ok(t)
                     }
@@ -474,11 +467,11 @@ impl<'a> Checker<'a> {
                 }
             }
             Expr::Assign(lvalue, expr) => {
-                self.resolve_with_pos(expr, breakable)?
-                    .expect(&self.resolve_lvalue(lvalue, lvalue.pos, breakable)?)?;
+                let expected = &self.resolve_lvalue(lvalue, breakable)?;
+                self.resolve_with_pos(expr, breakable)?.expect(expected)?;
                 Ok(self.void.clone())
             }
-            Expr::Lvalue(lvalue) => self.resolve_lvalue(lvalue, lvalue.pos, breakable),
+            Expr::Lvalue(lvalue) => self.resolve_lvalue(lvalue, breakable),
         }
     }
 
@@ -487,10 +480,7 @@ impl<'a> Checker<'a> {
         expr: &WithPos<Expr<'a>>,
         breakable: bool,
     ) -> Result<WithPos<RcType>, Error> {
-        Ok(WithPos {
-            inner: self.resolve(expr, breakable)?,
-            pos: expr.pos,
-        })
+        Ok(expr.with_inner(self.resolve(expr, breakable)?))
     }
 }
 

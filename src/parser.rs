@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Dec, Expr, Field, Lvalue, Op, Type, WithPos},
+    ast::{Dec, Expr, Field, Lvalue, Op, Type, WithPos, WithPosition},
     error::Error,
 };
 use pest::{
@@ -45,7 +45,7 @@ fn parse_fields(pair: Pair<Rule>) -> Vec<Field> {
     let mut fields = Vec::new();
     while let Some(field) = pairs.next() {
         fields.push(Field {
-            name: field.as_str().into(),
+            name: field.as_str(),
             ty: pairs.next().unwrap().into(),
         });
     }
@@ -53,18 +53,18 @@ fn parse_fields(pair: Pair<Rule>) -> Vec<Field> {
 }
 
 pub(crate) fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue, Error> {
+    let pos = pair.line_col().into();
     let mut pairs = pair.into_inner();
     let mut lvalue = Lvalue::Var(pairs.next().unwrap().into());
     for suffix in pairs {
-        match suffix.as_rule() {
-            Rule::lvaluefield => {
-                lvalue = Lvalue::Rec(lvalue.into(), suffix.into_inner().next().unwrap().into());
-            }
-            Rule::lvalueidx => {
-                lvalue = Lvalue::Idx(lvalue.into(), suffix.try_into()?);
-            }
+        lvalue = match suffix.as_rule() {
+            Rule::lvaluefield => Lvalue::Rec(
+                lvalue.with_pos(pos).into(),
+                suffix.into_inner().next().unwrap().into(),
+            ),
+            Rule::lvalueidx => Lvalue::Idx(lvalue.with_pos(pos).into(), suffix.try_into()?),
             _ => unreachable!(),
-        }
+        };
     }
     Ok(lvalue)
 }
@@ -79,14 +79,14 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
                 while let Some(Op::Mul | Op::Div) = ops.back().map(Deref::deref) {
                     apply(ops.pop_back().unwrap(), &mut exprs);
                 }
-                ops.push_back(to_op(rule).with_pos(pair));
+                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
             }
             rule @ (Rule::add | Rule::sub) => {
                 while let Some(Op::Add | Op::Sub | Op::Mul | Op::Div) = ops.back().map(Deref::deref)
                 {
                     apply(ops.pop_back().unwrap(), &mut exprs);
                 }
-                ops.push_back(to_op(rule).with_pos(pair));
+                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
             }
             rule @ (Rule::gt | Rule::ge | Rule::lt | Rule::le | Rule::ne | Rule::eq) => {
                 loop {
@@ -95,7 +95,7 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
                         _ => apply(ops.pop_back().unwrap(), &mut exprs),
                     }
                 }
-                ops.push_back(to_op(rule).with_pos(pair));
+                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
             }
             rule @ Rule::and => {
                 loop {
@@ -104,13 +104,13 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
                         _ => apply(ops.pop_back().unwrap(), &mut exprs),
                     }
                 }
-                ops.push_back(to_op(rule).with_pos(pair));
+                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
             }
             rule @ Rule::or => {
                 while let Some(op) = ops.pop_back() {
                     apply(op, &mut exprs);
                 }
-                ops.push_back(to_op(rule).with_pos(pair));
+                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
             }
             Rule::lvalue => exprs.push_back(Expr::Lvalue(pair.try_into()?)),
             Rule::nil => exprs.push_back(Expr::Nil),
@@ -122,12 +122,9 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
                 ));
             }
             Rule::int => {
-                exprs.push_back(Expr::Integer(pair.as_str().parse().map_err(|inner| {
-                    Error::ParseIntError(WithPos {
-                        inner,
-                        pos: pair.line_col().into(),
-                    })
-                })?))
+                exprs.push_back(Expr::Integer(pair.as_str().parse::<isize>().map_err(
+                    |error| Error::ParseIntError(error.with_pos(pair.line_col().into())),
+                )?))
             }
             Rule::neg => exprs.push_back(Expr::Neg(pair.try_into()?)),
             Rule::string => {
@@ -171,23 +168,19 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
             }
             Rule::fncall => {
                 let mut pairs = pair.into_inner();
-                let name = pairs.next().unwrap();
                 exprs.push_back(Expr::FnCall {
-                    name: name.into(),
+                    name: pairs.next().unwrap().into(),
                     args: pairs.map(|pair| pair.try_into()).try_collect()?,
                 });
             }
             Rule::rec => {
                 let mut pairs = pair.into_inner();
-                let ty = pairs.next().unwrap();
+                let ty = pairs.next().unwrap().into();
                 let mut fields = Vec::new();
                 while let Some(field) = pairs.next() {
                     fields.push((field.into(), pairs.next().unwrap().try_into()?));
                 }
-                exprs.push_back(Expr::Rec {
-                    ty: ty.into(),
-                    fields,
-                });
+                exprs.push_back(Expr::Rec { ty, fields });
             }
             Rule::array => {
                 let mut pairs = pair.into_inner();

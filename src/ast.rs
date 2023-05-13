@@ -42,12 +42,13 @@ impl Display for Op {
     }
 }
 
-impl Op {
-    pub(crate) fn with_pos(self, pair: Pair<Rule>) -> WithPos<Self> {
-        WithPos {
-            pos: pair.line_col().into(),
-            inner: self,
-        }
+pub(crate) trait WithPosition<T> {
+    fn with_pos(self, pos: Pos) -> WithPos<T>;
+}
+
+impl<T> WithPosition<T> for T {
+    fn with_pos(self, pos: Pos) -> WithPos<T> {
+        WithPos { pos, inner: self }
     }
 }
 
@@ -83,8 +84,8 @@ pub enum Dec<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Lvalue<'a> {
     Var(WithPos<&'a str>),
-    Rec(Box<Self>, WithPos<&'a str>),
-    Idx(Box<Self>, Box<WithPos<Expr<'a>>>),
+    Rec(Box<WithPos<Self>>, WithPos<&'a str>),
+    Idx(Box<WithPos<Self>>, Box<WithPos<Expr<'a>>>),
 }
 
 impl<'a> Display for Lvalue<'a> {
