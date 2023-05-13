@@ -50,8 +50,8 @@ impl WithPos<RcType> {
                 | (Type::Nil, Type::Rec { .. })
                 | (Type::Nil, Type::Array { .. }) => Ok(()),
                 _ => Err(Error::MismatchedTypes {
-                    expected: format!("{}", expected),
-                    found: self.with_inner(format!("{}", self.inner)),
+                    expected: expected.to_string(),
+                    found: self.with_inner(self.inner.to_string()),
                 }),
             }
         }
@@ -157,7 +157,7 @@ impl<'a> Checker<'a> {
                     .ok_or_else(|| Error::NoSuchField(field.into()))?
                     .clone()),
                 _ => Err(Error::NotRecord(WithPos {
-                    inner: format!("{}", var),
+                    inner: var.to_string(),
                     pos,
                 })),
             },
@@ -167,7 +167,7 @@ impl<'a> Checker<'a> {
                     Ok(ty.clone())
                 }
                 _ => Err(Error::NotArray(WithPos {
-                    inner: format!("{}", var),
+                    inner: var.to_string(),
                     pos,
                 })),
             },
@@ -354,8 +354,8 @@ impl<'a> Checker<'a> {
                     | (Op::Ne | Op::Eq, Type::Nil, Type::Rec { .. }) => Ok(self.int.clone()),
                     _ => Err(Error::UnsupportedOperandType {
                         op: *op,
-                        lty: format!("{}", lty),
-                        rty: format!("{}", rty),
+                        lty: lty.to_string(),
+                        rty: rty.to_string(),
                     }),
                 }
             }
