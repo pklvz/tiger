@@ -42,16 +42,6 @@ impl Display for Op {
     }
 }
 
-pub(crate) trait WithPosition<T> {
-    fn with_pos(self, pos: Pos) -> WithPos<T>;
-}
-
-impl<T> WithPosition<T> for T {
-    fn with_pos(self, pos: Pos) -> WithPos<T> {
-        WithPos { pos, inner: self }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field<'a> {
     pub name: &'a str,

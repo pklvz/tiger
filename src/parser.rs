@@ -1,12 +1,12 @@
 use crate::{
-    ast::{Dec, Expr, Field, Lvalue, Op, Type, WithPos, WithPosition},
+    ast::{Dec, Expr, Field, Lvalue, Op, Type, WithPos},
     error::Error,
 };
 use pest::{
     iterators::{Pair, Pairs},
     Parser,
 };
-use std::{borrow::Cow, collections::LinkedList, ops::Deref};
+use std::{borrow::Cow, collections::LinkedList};
 
 #[derive(Parser)]
 #[grammar = "tiger.pest"]
@@ -22,21 +22,13 @@ fn apply(op: WithPos<Op>, exprs: &mut LinkedList<Expr>) {
     });
 }
 
-fn to_op(rule: Rule) -> Op {
+fn priority(rule: Op) -> usize {
     match rule {
-        Rule::add => Op::Add,
-        Rule::sub => Op::Sub,
-        Rule::mul => Op::Mul,
-        Rule::div => Op::Div,
-        Rule::gt => Op::Gt,
-        Rule::ge => Op::Ge,
-        Rule::lt => Op::Lt,
-        Rule::le => Op::Le,
-        Rule::ne => Op::Ne,
-        Rule::eq => Op::Eq,
-        Rule::and => Op::And,
-        Rule::or => Op::Or,
-        _ => unreachable!(),
+        Op::Mul | Op::Div => 4,
+        Op::Add | Op::Sub => 3,
+        Op::Gt | Op::Ge | Op::Lt | Op::Le | Op::Ne | Op::Eq => 2,
+        Op::And => 1,
+        Op::Or => 0,
     }
 }
 
@@ -57,12 +49,10 @@ pub(crate) fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue, Error> {
     let mut pairs = pair.into_inner();
     let mut lvalue = Lvalue::Var(pairs.next().unwrap().into());
     for suffix in pairs {
+        let var = WithPos { inner: lvalue, pos }.into();
         lvalue = match suffix.as_rule() {
-            Rule::lvaluefield => Lvalue::Rec(
-                lvalue.with_pos(pos).into(),
-                suffix.into_inner().next().unwrap().into(),
-            ),
-            Rule::lvalueidx => Lvalue::Idx(lvalue.with_pos(pos).into(), suffix.try_into()?),
+            Rule::lvaluefield => Lvalue::Rec(var, suffix.into_inner().next().unwrap().into()),
+            Rule::lvalueidx => Lvalue::Idx(var, suffix.try_into()?),
             _ => unreachable!(),
         };
     }
@@ -71,46 +61,49 @@ pub(crate) fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue, Error> {
 
 pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
     let mut exprs = LinkedList::new();
-    let mut ops = LinkedList::new();
+    let mut ops: LinkedList<WithPos<Op>> = LinkedList::new();
     for pair in pairs {
         match pair.as_rule() {
             Rule::opexp => exprs.push_back(parse_expr(pair.into_inner())?),
-            rule @ (Rule::mul | Rule::div) => {
-                while let Some(Op::Mul | Op::Div) = ops.back().map(Deref::deref) {
-                    apply(ops.pop_back().unwrap(), &mut exprs);
-                }
-                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
-            }
-            rule @ (Rule::add | Rule::sub) => {
-                while let Some(Op::Add | Op::Sub | Op::Mul | Op::Div) = ops.back().map(Deref::deref)
-                {
-                    apply(ops.pop_back().unwrap(), &mut exprs);
-                }
-                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
-            }
-            rule @ (Rule::gt | Rule::ge | Rule::lt | Rule::le | Rule::ne | Rule::eq) => {
+            rule @ (Rule::mul
+            | Rule::div
+            | Rule::add
+            | Rule::sub
+            | Rule::gt
+            | Rule::ge
+            | Rule::lt
+            | Rule::le
+            | Rule::ne
+            | Rule::eq
+            | Rule::and
+            | Rule::or) => {
+                let op = match rule {
+                    Rule::add => Op::Add,
+                    Rule::sub => Op::Sub,
+                    Rule::mul => Op::Mul,
+                    Rule::div => Op::Div,
+                    Rule::gt => Op::Gt,
+                    Rule::ge => Op::Ge,
+                    Rule::lt => Op::Lt,
+                    Rule::le => Op::Le,
+                    Rule::ne => Op::Ne,
+                    Rule::eq => Op::Eq,
+                    Rule::and => Op::And,
+                    Rule::or => Op::Or,
+                    _ => unreachable!(),
+                };
                 loop {
-                    match ops.back().map(Deref::deref) {
-                        Some(Op::And | Op::Or) | None => break,
-                        _ => apply(ops.pop_back().unwrap(), &mut exprs),
+                    match ops.back() {
+                        Some(last) if priority(**last) >= priority(op) => {
+                            apply(ops.pop_back().unwrap(), &mut exprs)
+                        }
+                        _ => break,
                     }
                 }
-                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
-            }
-            rule @ Rule::and => {
-                loop {
-                    match ops.back().map(Deref::deref) {
-                        Some(Op::Or) | None => break,
-                        _ => apply(ops.pop_back().unwrap(), &mut exprs),
-                    }
-                }
-                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
-            }
-            rule @ Rule::or => {
-                while let Some(op) = ops.pop_back() {
-                    apply(op, &mut exprs);
-                }
-                ops.push_back(to_op(rule).with_pos(pair.line_col().into()));
+                ops.push_back(WithPos {
+                    inner: op,
+                    pos: pair.line_col().into(),
+                });
             }
             Rule::lvalue => exprs.push_back(Expr::Lvalue(pair.try_into()?)),
             Rule::nil => exprs.push_back(Expr::Nil),
@@ -121,11 +114,14 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
                         .try_collect()?,
                 ));
             }
-            Rule::int => {
-                exprs.push_back(Expr::Integer(pair.as_str().parse::<isize>().map_err(
-                    |error| Error::ParseIntError(error.with_pos(pair.line_col().into())),
-                )?))
-            }
+            Rule::int => exprs.push_back(Expr::Integer(pair.as_str().parse::<isize>().map_err(
+                |inner| {
+                    Error::ParseIntError(WithPos {
+                        inner,
+                        pos: pair.line_col().into(),
+                    })
+                },
+            )?)),
             Rule::neg => exprs.push_back(Expr::Neg(pair.try_into()?)),
             Rule::string => {
                 let s = pair.as_str();
