@@ -208,7 +208,7 @@ impl<'a> TryFrom<Pair<'a, Rule>> for WithPos<Expr<'a>> {
     fn try_from(value: Pair<'a, Rule>) -> Result<Self, Self::Error> {
         Ok(WithPos {
             pos: value.line_col().into(),
-            inner: parse_expr(value.into_inner())?,
+            inner: parse_expr(value)?,
         })
     }
 }
