@@ -57,7 +57,10 @@ pub enum Type<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Dec<'a> {
-    TyDec(&'a str, WithPos<Type<'a>>),
+    TyDec {
+        name: &'a str,
+        ty: WithPos<Type<'a>>,
+    },
     VarDec {
         name: WithPos<&'a str>,
         ty: Option<WithPos<&'a str>>,

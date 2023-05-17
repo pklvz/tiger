@@ -241,11 +241,11 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
                     match pair.as_rule() {
                         Rule::tydec => {
                             let mut pairs = pair.into_inner();
-                            let ident = pairs.next().unwrap().as_str().into();
+                            let name = pairs.next().unwrap().as_str().into();
                             let ty = pairs.next().unwrap();
-                            decs.push(Dec::TyDec(
-                                ident,
-                                WithPos {
+                            decs.push(Dec::TyDec {
+                                name,
+                                ty: WithPos {
                                     pos: ty.line_col().into(),
                                     inner: match ty.as_rule() {
                                         Rule::arraydec => {
@@ -258,7 +258,7 @@ pub(crate) fn parse_expr(pairs: Pairs<Rule>) -> Result<Expr, Error> {
                                         _ => unreachable!(),
                                     },
                                 },
-                            ));
+                            });
                         }
                         Rule::vardec => {
                             let mut pairs = pair.into_inner();

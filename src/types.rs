@@ -170,7 +170,7 @@ impl<'a> Checker<'a> {
     fn try_resolve_tydec(&mut self, decs: &Vec<Dec<'a>>) -> Result<Vec<String>, Error> {
         let mut tnames = Vec::new();
         for dec in decs {
-            if let Dec::TyDec(name, ty) = dec {
+            if let Dec::TyDec { name, ty } = dec {
                 tnames.push(name.to_string());
                 let resolve = |ty| {
                     self.tenv
