@@ -167,11 +167,9 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn try_resolve_tydec(&mut self, decs: &Vec<Dec<'a>>) -> Result<Vec<String>, Error> {
-        let mut tnames = Vec::new();
+    fn try_resolve_tydec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), Error> {
         for dec in decs {
             if let Dec::TyDec { name, ty } = dec {
-                tnames.push(name.to_string());
                 let resolve = |ty| {
                     self.tenv
                         .get(ty)
@@ -199,7 +197,7 @@ impl<'a> Checker<'a> {
                 );
             }
         }
-        Ok(tnames)
+        Ok(())
     }
 
     fn resolve_alias(&mut self) -> Result<(), Error> {
@@ -247,17 +245,10 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn resolve_vardec(
-        &mut self,
-        decs: &Vec<Dec<'a>>,
-        breakable: bool,
-    ) -> Result<(Vec<String>, Vec<String>), Error> {
-        let mut vnames = Vec::new();
-        let mut fnames = Vec::new();
+    fn resolve_vardec(&mut self, decs: &Vec<Dec<'a>>, breakable: bool) -> Result<(), Error> {
         for dec in decs {
             match dec {
                 Dec::VarDec { name, ty, val } => {
-                    vnames.push(name.to_string());
                     let found = self.resolve_with_pos(val, breakable)?;
                     match ty {
                         Some(ty) => {
@@ -280,7 +271,6 @@ impl<'a> Checker<'a> {
                     retty,
                     ..
                 } => {
-                    fnames.push(name.to_string());
                     self.venv.insert(
                         name,
                         Type::Fn {
@@ -299,7 +289,7 @@ impl<'a> Checker<'a> {
                 _ => (),
             }
         }
-        Ok((vnames, fnames))
+        Ok(())
     }
 
     fn resolve_fn_body(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), Error> {
@@ -404,20 +394,18 @@ impl<'a> Checker<'a> {
                 }
             }
             Expr::Let(decs, expr) => {
-                let tnames = self.try_resolve_tydec(decs)?;
+                self.try_resolve_tydec(decs)?;
                 self.resolve_alias()?;
                 self.resolve_tydec()?;
-                let (vnames, fnames) = self.resolve_vardec(decs, breakable)?;
+                self.resolve_vardec(decs, breakable)?;
                 self.resolve_fn_body(decs)?;
                 let val = self.resolve(expr, breakable);
-                for tname in tnames {
-                    self.tenv.remove(&tname);
-                }
-                for vname in vnames {
-                    self.venv.remove(&vname);
-                }
-                for fname in fnames {
-                    self.venv.remove(&fname);
+                for dec in decs {
+                    match dec {
+                        Dec::TyDec { name, .. } => self.tenv.remove(name),
+                        Dec::VarDec { name, .. } => self.venv.remove(name),
+                        Dec::FnDec { name, .. } => self.venv.remove(name),
+                    };
                 }
                 val
             }

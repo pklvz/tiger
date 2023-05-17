@@ -12,13 +12,12 @@ impl<'a, T> Env<'a, T> {
         self.0.entry(name).or_default().push_front(val);
     }
 
-    pub fn remove(&mut self, name: &str) -> Option<T> {
-        let vals = self.0.get_mut(name)?;
-        let val = vals.pop_front().unwrap();
+    pub fn remove(&mut self, name: &str) {
+        let vals = self.0.get_mut(name).unwrap();
+        vals.pop_front().unwrap();
         if vals.is_empty() {
             self.0.remove(name);
         }
-        Some(val)
     }
 
     pub fn get(&self, name: &WithPos<&str>) -> Result<&T, Error> {
