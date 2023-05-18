@@ -108,6 +108,7 @@ pub(crate) fn parse_expr(pair: Pair<Rule>) -> Result<Expr, Error> {
         )?)),
         Rule::string => {
             let s = pair.as_str();
+            let s = &s[1..s.len() - 1];
             let mut string = String::new();
             let mut has_escape_char = false;
             for pair in pair.into_inner() {
