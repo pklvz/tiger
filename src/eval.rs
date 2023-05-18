@@ -57,6 +57,16 @@ impl<'a> Value<'a> {
     }
 }
 
+impl<'a> WithPos<Value<'a>> {
+    fn as_index(self) -> Result<usize, Error> {
+        match *self {
+            Value::Integer(int) if int >= 0 => Ok(int as usize),
+            Value::Integer(int) => Err(Error::NegtiveIndex(self.with_inner(int))),
+            _ => unreachable!(),
+        }
+    }
+}
+
 struct Interpreter<'a> {
     venv: Env<'a, Value<'a>>,
     fenv: Env<'a, Fn<'a>>,
@@ -90,12 +100,7 @@ impl<'a> Interpreter<'a> {
                 _ => unreachable!(),
             },
             Lvalue::Idx(var, index) => {
-                let i = self.eval(index)?.as_int();
-                let i = if i >= 0 {
-                    i as usize
-                } else {
-                    return Err(Error::NegtiveIndex(index.with_inner(i)));
-                };
+                let i = self.eval_with_pos(index)?.as_index()?;
                 match &mut *self.eval_lvalue(var)? {
                     Value::Array(arr) => Ok(unsafe { Rc::get_mut_unchecked(arr) }
                         .get_mut(i)
@@ -240,22 +245,26 @@ impl<'a> Interpreter<'a> {
             }
             Expr::FnCall { name, args } => {
                 let val = self.fenv.get(name).unwrap().clone();
-                let mut args: Vec<_> = args.into_iter().map(|arg| self.eval(arg)).try_collect()?;
-                let ioe_op = |error| Error::IOError(name.with_inner(error));
-                let tie_op = |error| Error::TryFromIntError(name.with_inner(error));
+                let mut args = args.iter();
                 match val {
                     Fn::Print => {
-                        print!("{}", args.pop().unwrap().as_string());
+                        print!("{}", self.eval(args.next().unwrap())?.as_string());
                         Ok(Value::Void)
                     }
                     Fn::Flush => {
-                        std::io::stdout().flush().map_err(ioe_op)?;
+                        std::io::stdout()
+                            .flush()
+                            .map_err(|error| Error::IOError(name.with_inner(error)))?;
                         Ok(Value::Void)
                     }
                     Fn::Getchar => {
                         let mut buf = [0u8];
                         Ok(Value::String(
-                            if std::io::stdin().read(&mut buf[..]).map_err(ioe_op)? == 0 {
+                            if std::io::stdin()
+                                .read(&mut buf[..])
+                                .map_err(|error| Error::IOError(name.with_inner(error)))?
+                                == 0
+                            {
                                 Cow::Borrowed("")
                             } else {
                                 Cow::Owned(String::from(char::from(buf[0])))
@@ -263,8 +272,7 @@ impl<'a> Interpreter<'a> {
                         ))
                     }
                     Fn::Ord => Ok(Value::Integer(
-                        args.pop()
-                            .unwrap()
+                        self.eval(args.next().unwrap())?
                             .as_string()
                             .bytes()
                             .next()
@@ -272,38 +280,37 @@ impl<'a> Interpreter<'a> {
                             .unwrap_or(-1),
                     )),
                     Fn::Chr => Ok(Value::String(Cow::Owned(String::from(char::from(
-                        u8::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?,
+                        u8::try_from(self.eval(args.next().unwrap())?.as_int())
+                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
                     ))))),
                     Fn::Size => Ok(Value::Integer(
-                        args.pop()
-                            .unwrap()
+                        self.eval(args.next().unwrap())?
                             .as_string()
                             .len()
                             .try_into()
-                            .map_err(tie_op)?,
+                            .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
                     )),
                     Fn::Substring => {
-                        let n = usize::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?;
-                        let first =
-                            usize::try_from(args.pop().unwrap().as_int()).map_err(tie_op)?;
-                        Ok(Value::String(Cow::Owned(String::from(
-                            &args.pop().unwrap().as_string()[first..first + n],
-                        ))))
+                        let s = self.eval(args.next().unwrap())?.as_string();
+                        let first = self.eval_with_pos(args.next().unwrap())?.as_index()?;
+                        let n = self.eval_with_pos(args.next().unwrap())?.as_index()?;
+                        Ok(Value::String(Cow::Owned((&s[first..first + n]).into())))
                     }
                     Fn::Concat => {
-                        let s2 = args.pop().unwrap().as_string();
-                        let mut s1 = args.pop().unwrap().as_string().to_string();
+                        let mut s1 = self.eval(args.next().unwrap())?.as_string().to_string();
+                        let s2 = self.eval(args.next().unwrap())?.as_string();
                         s1.push_str(&s2);
                         Ok(Value::String(Cow::Owned(s1)))
                     }
                     Fn::Not => Ok(Value::Integer(
-                        !(args.pop().unwrap().as_int() != 0) as isize,
+                        (self.eval(args.next().unwrap())?.as_int() == 0) as isize,
                     )),
                     Fn::Exit => {
-                        std::process::exit(args.pop().unwrap().as_int().try_into().map_err(tie_op)?)
+                        std::process::exit(self.eval(args.next().unwrap())?.as_int() as i32)
                     }
                     Fn::Other { fields, body } => {
                         for (field, arg) in fields.iter().zip(args) {
+                            let arg = self.eval(arg)?;
                             self.venv.insert(field, arg);
                         }
                         let ret = self.eval(&body)?;
@@ -322,15 +329,9 @@ impl<'a> Interpreter<'a> {
                 Ok(Value::Rec(Rc::new(rec)))
             }
             Expr::Array { n, v, .. } => {
-                let len = self.eval(n)?.as_int();
-                let len = if len >= 0 {
-                    len as usize
-                } else {
-                    return Err(Error::NegtiveIndex(n.with_inner(len)));
-                };
+                let n = self.eval_with_pos(n)?.as_index()?;
                 let v = self.eval(v)?;
-                let arr = once(v).cycle().take(len).collect();
-                Ok(Value::Array(Rc::new(arr)))
+                Ok(Value::Array(Rc::new(once(v).cycle().take(n).collect())))
             }
             Expr::Assign(lvalue, expr) => {
                 *self.eval_lvalue(lvalue)? = self.eval(expr)?;
@@ -338,6 +339,10 @@ impl<'a> Interpreter<'a> {
             }
             Expr::Lvalue(lvalue) => self.eval_lvalue(lvalue).cloned(),
         }
+    }
+
+    fn eval_with_pos(&mut self, expr: &WithPos<Expr<'a>>) -> Result<WithPos<Value<'a>>, Error> {
+        Ok(expr.with_inner(self.eval(expr)?))
     }
 }
 
