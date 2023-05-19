@@ -7,23 +7,23 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("{0}")]
+    #[error("{}", .0)]
     ParseError(pest::error::Error<Rule>),
     #[error("{}, {}", .0.pos, .0.inner)]
     ParseIntError(WithPos<num::ParseIntError>),
 
-    #[error("{}, unsupported operand type(s) {lty} and {rty} for {}", .op.pos, .op.inner)]
+    #[error("{}, unsupported operand type(s) {} and {} for {}", op.pos, lty, rty, op.inner)]
     UnsupportedOperandType {
         op: WithPos<Op>,
         lty: String,
         rty: String,
     },
-    #[error("{}, type mismatch, expected {expected}, found {}", .found.pos, .found.inner)]
+    #[error("{}, type mismatch, expected {}, found {}", found.pos, expected, found.inner)]
     MismatchedTypes {
         expected: String,
         found: WithPos<String>,
     },
-    #[error("{}, {} takes {expected} argument(s) but {found} were given", .name.pos, .name.inner)]
+    #[error("{}, {} takes {} argument(s) but {} were given", name.pos, name.inner, expected, found)]
     MismatchedArgumentNum {
         name: WithPos<String>,
         expected: usize,
@@ -43,7 +43,7 @@ pub enum Error {
     NoSuchField(WithPos<String>),
     #[error("{}, {} is not array", .0.pos, .0.inner)]
     NotArray(WithPos<String>),
-    #[error("{0}, break outside loop")]
+    #[error("{}, break outside loop", .0)]
     BreakOutsideLoop(Pos),
 
     #[error("{}, nil struct dereference", .0)]
