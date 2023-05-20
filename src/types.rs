@@ -365,7 +365,10 @@ impl<'a> Checker<'a> {
                         let tty = self.resolve(t, breakable)?;
                         let fty = self.resolve_with_pos(f, breakable)?;
                         fty.expect(&tty)?;
-                        Ok(tty)
+                        Ok(match &*tty {
+                            Type::Nil => fty.inner,
+                            _ => tty,
+                        })
                     }
                     None => {
                         self.resolve_with_pos(t, breakable)?.expect(&self.void)?;
