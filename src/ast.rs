@@ -3,7 +3,11 @@ use crate::{
     parser::{parse_expr, parse_lvalue, Rule},
 };
 use pest::iterators::Pair;
-use std::{borrow::Cow, fmt::Display, ops::Deref};
+use std::{
+    borrow::{Borrow, Cow},
+    fmt::Display,
+    ops::Deref,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
@@ -184,11 +188,14 @@ impl<T: PartialEq> PartialEq for WithPos<T> {
     }
 }
 
-impl From<&WithPos<&str>> for WithPos<String> {
-    fn from(value: &WithPos<&str>) -> Self {
+impl<T> From<&WithPos<T>> for WithPos<String>
+where
+    T: Borrow<str>,
+{
+    fn from(value: &WithPos<T>) -> Self {
         WithPos {
             pos: value.pos,
-            inner: value.inner.into(),
+            inner: value.inner.borrow().into(),
         }
     }
 }

@@ -170,7 +170,7 @@ impl<'a> Checker<'a> {
     fn try_resolve_tydec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), Error> {
         for dec in decs {
             if let Dec::TyDec { name, ty } = dec {
-                let resolve = |ty| {
+                let resolve = |ty: &WithPos<&str>| {
                     self.tenv
                         .get(ty)
                         .cloned()
@@ -207,7 +207,7 @@ impl<'a> Checker<'a> {
                 if let Type::Unknown(ty) = &**tys.front().unwrap() {
                     if !traces.entry(*name).or_default().insert(ty.inner.clone()) {
                         return Err(Error::RecursiveType(ty.clone()));
-                    } else if let Ok(ty) = self.tenv.gets(ty).cloned() {
+                    } else if let Ok(ty) = self.tenv.get(ty).cloned() {
                         let name = *name;
                         self.tenv.remove(name);
                         self.tenv.insert(name, ty);
@@ -223,7 +223,7 @@ impl<'a> Checker<'a> {
     fn resolve_tydec(&mut self) -> Result<(), Error> {
         for tys in self.tenv.0.values() {
             let mut ty = tys.front().unwrap().clone();
-            let resolve = |ty: &WithPos<String>| self.tenv.gets(ty).cloned();
+            let resolve = |ty: &WithPos<String>| self.tenv.get(ty).cloned();
             match unsafe { Rc::get_mut_unchecked(&mut ty.0) } {
                 Type::Array { ref mut ty, .. } => {
                     if let Type::Unknown(t) = &**ty {
