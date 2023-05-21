@@ -22,13 +22,7 @@ mod tests {
     use std::{fs, path::PathBuf};
     use test::Bencher;
 
-    static NO_EXEC: [&'static str; 5] = [
-        "merge.tig",
-        "queens.tig",
-        "test6.tig",
-        "test7.tig",
-        "test18.tig",
-    ];
+    static NO_EXEC: [&'static str; 4] = ["merge.tig", "test6.tig", "test7.tig", "test18.tig"];
 
     fn test_src(file_name: &str, src: &str) -> Result<(), Error> {
         let ast = parser::parse(src)?;
