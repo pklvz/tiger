@@ -139,50 +139,58 @@ impl<'a> Interpreter<'a> {
 
     fn eval(&mut self, expr: &Expr<'a>) -> Result<Value<'a>, Error> {
         match expr {
-            Expr::BinOp { lhs, rhs, op } => {
-                let lhs = self.eval(lhs)?;
-                let rhs = self.eval(rhs)?;
-                Ok(Value::Integer(match (lhs, rhs, &**op) {
-                    (Value::String(lhs), Value::String(rhs), Op::Gt) => (lhs > rhs) as isize,
-                    (Value::String(lhs), Value::String(rhs), Op::Ge) => (lhs >= rhs) as isize,
-                    (Value::String(lhs), Value::String(rhs), Op::Lt) => (lhs < rhs) as isize,
-                    (Value::String(lhs), Value::String(rhs), Op::Le) => (lhs <= rhs) as isize,
-                    (Value::String(lhs), Value::String(rhs), Op::Ne) => (lhs != rhs) as isize,
-                    (Value::String(lhs), Value::String(rhs), Op::Eq) => (lhs == rhs) as isize,
+            Expr::BinOp { lhs, rhs, op } => Ok(Value::Integer(match &**op {
+                Op::And => match self.eval(lhs)?.as_int() {
+                    0 => 0,
+                    _ => (self.eval(rhs)?.as_int() != 0) as isize,
+                },
+                Op::Or => match self.eval(lhs)?.as_int() {
+                    0 => (self.eval(rhs)?.as_int() != 0) as isize,
+                    _ => 1,
+                },
+                op => {
+                    let lhs = self.eval(lhs)?;
+                    let rhs = self.eval(rhs)?;
+                    match (lhs, rhs, op) {
+                        (Value::String(lhs), Value::String(rhs), Op::Gt) => (lhs > rhs) as isize,
+                        (Value::String(lhs), Value::String(rhs), Op::Ge) => (lhs >= rhs) as isize,
+                        (Value::String(lhs), Value::String(rhs), Op::Lt) => (lhs < rhs) as isize,
+                        (Value::String(lhs), Value::String(rhs), Op::Le) => (lhs <= rhs) as isize,
+                        (Value::String(lhs), Value::String(rhs), Op::Ne) => (lhs != rhs) as isize,
+                        (Value::String(lhs), Value::String(rhs), Op::Eq) => (lhs == rhs) as isize,
 
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Gt) => (lhs > rhs) as isize,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Ge) => (lhs >= rhs) as isize,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Lt) => (lhs < rhs) as isize,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Le) => (lhs <= rhs) as isize,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Ne) => (lhs != rhs) as isize,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Eq) => (lhs == rhs) as isize,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Add) => lhs + rhs,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Sub) => lhs - rhs,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Mul) => lhs * rhs,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Div) => lhs / rhs,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::And) => lhs & rhs,
-                    (Value::Integer(lhs), Value::Integer(rhs), Op::Or) => lhs | rhs,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Gt) => (lhs > rhs) as isize,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Ge) => (lhs >= rhs) as isize,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Lt) => (lhs < rhs) as isize,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Le) => (lhs <= rhs) as isize,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Ne) => (lhs != rhs) as isize,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Eq) => (lhs == rhs) as isize,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Add) => lhs + rhs,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Sub) => lhs - rhs,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Mul) => lhs * rhs,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Div) => lhs / rhs,
 
-                    (Value::Array(lhs), Value::Array(rhs), Op::Ne) => (lhs != rhs) as isize,
-                    (Value::Array(lhs), Value::Array(rhs), Op::Eq) => (lhs == rhs) as isize,
-                    (Value::Array(_), Value::Nil, Op::Ne) => 1,
-                    (Value::Array(_), Value::Nil, Op::Eq) => 0,
-                    (Value::Nil, Value::Array(_), Op::Ne) => 1,
-                    (Value::Nil, Value::Array(_), Op::Eq) => 0,
+                        (Value::Array(lhs), Value::Array(rhs), Op::Ne) => (lhs != rhs) as isize,
+                        (Value::Array(lhs), Value::Array(rhs), Op::Eq) => (lhs == rhs) as isize,
+                        (Value::Array(_), Value::Nil, Op::Ne) => 1,
+                        (Value::Array(_), Value::Nil, Op::Eq) => 0,
+                        (Value::Nil, Value::Array(_), Op::Ne) => 1,
+                        (Value::Nil, Value::Array(_), Op::Eq) => 0,
 
-                    (Value::Rec(lhs), Value::Rec(rhs), Op::Ne) => (lhs != rhs) as isize,
-                    (Value::Rec(lhs), Value::Rec(rhs), Op::Eq) => (lhs == rhs) as isize,
-                    (Value::Rec(_), Value::Nil, Op::Ne) => 1,
-                    (Value::Rec(_), Value::Nil, Op::Eq) => 0,
-                    (Value::Nil, Value::Rec(_), Op::Ne) => 1,
-                    (Value::Nil, Value::Rec(_), Op::Eq) => 0,
+                        (Value::Rec(lhs), Value::Rec(rhs), Op::Ne) => (lhs != rhs) as isize,
+                        (Value::Rec(lhs), Value::Rec(rhs), Op::Eq) => (lhs == rhs) as isize,
+                        (Value::Rec(_), Value::Nil, Op::Ne) => 1,
+                        (Value::Rec(_), Value::Nil, Op::Eq) => 0,
+                        (Value::Nil, Value::Rec(_), Op::Ne) => 1,
+                        (Value::Nil, Value::Rec(_), Op::Eq) => 0,
 
-                    (Value::Nil, Value::Nil, Op::Ne) => 0,
-                    (Value::Nil, Value::Nil, Op::Eq) => 1,
+                        (Value::Nil, Value::Nil, Op::Ne) => 0,
+                        (Value::Nil, Value::Nil, Op::Eq) => 1,
 
-                    _ => unreachable!(),
-                }))
-            }
+                        _ => unreachable!(),
+                    }
+                }
+            })),
             Expr::Nil => Ok(Value::Nil),
             Expr::Neg(expr) => Ok(Value::Integer(-self.eval(expr)?.as_int())),
             Expr::Seq(exprs) => match &exprs[..] {
