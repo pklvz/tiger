@@ -9,48 +9,48 @@ tyfields =  { (ident ~ ":" ~ ident ~ ("," ~ ident ~ ":" ~ ident)*)? }
 vardec   =  { "var" ~ ident ~ (":" ~ ident)? ~ ":=" ~ exp }
 fundec   =  { "function" ~ ident ~ "(" ~ tyfields ~ ")" ~ (":" ~ ident)? ~ "=" ~ exp }
 
-lvalue      = { ident ~ (lvaluefield | lvalueidx)* }
+lvalue      = { ident ~ (lvaluefield | lvalueindex)* }
 lvaluefield = { "." ~ ident }
-lvalueidx   = { "[" ~ exp ~ "]" }
+lvalueindex = { "[" ~ exp ~ "]" }
 
-newline =  { "\\n" }
-tab     =  { "\\t" }
-ctrl    =  { "\\^" ~ (ASCII_ALPHA_UPPER | "[" | "\\" | "]" | "^" | "_" | "?") }
-decimal =  { "\\" ~ ASCII_DIGIT{3} }
-quote   =  { "\\\"" }
-escape  =  { "\\\\" }
-ignore  =  { "\\" ~ WHITESPACE* ~ "\\" }
-char    =  { !("\"" | "\\") ~ ANY }
-string  = ${ "\"" ~ (newline | tab | ctrl | decimal | quote | escape | ignore | char)* ~ "\"" }
+newline   =  { "\\n" }
+tab       =  { "\\t" }
+ctrl      =  { "\\^" ~ (ASCII_ALPHA_UPPER | "[" | "\\" | "]" | "^" | "_" | "?") }
+decimal   =  { "\\" ~ ASCII_DIGIT{3} }
+quotmark  =  { "\\\"" }
+backslash =  { "\\\\" }
+ignore    =  { "\\" ~ WHITESPACE* ~ "\\" }
+char      =  { !("\"" | "\\") ~ ANY }
+string    = ${ "\"" ~ (newline | tab | ctrl | decimal | quotmark | backslash | ignore | char)* ~ "\"" }
 
-nil    =  { "nil" }
-seq    =  { "(" ~ (exp ~ (";" ~ exp)*)? ~ ")" }
-int    = @{ ASCII_DIGIT+ }
-fncall =  { ident ~ "(" ~ (exp ~ ("," ~ exp)*)? ~ ")" }
-rec    =  { ident ~ "{" ~ (ident ~ "=" ~ exp ~ ("," ~ ident ~ "=" ~ exp)*)? ~ "}" }
-array  =  { ident ~ "[" ~ exp ~ "]" ~ "of" ~ exp }
-assign =  { lvalue ~ ":=" ~ exp }
-if     =  { "if" ~ exp ~ "then" ~ exp ~ ("else" ~ exp)? }
-while  =  { "while" ~ exp ~ "do" ~ exp }
-for    =  { "for" ~ ident ~ ":=" ~ exp ~ "to" ~ exp ~ "do" ~ exp }
-break  =  { "break" }
-let    =  { "let" ~ decs ~ "in" ~ letseq ~ "end" }
-letseq =  { (exp ~ (";" ~ exp)*)? }
-atom   = _{ (minus ~ exp) | nil | seq | int | string | if | while | for | break | let | fncall | rec | array | assign | lvalue }
-minus  =  { "-" }
-add    =  { "+" }
-sub    =  { "-" }
-mul    =  { "*" }
-div    =  { "/" }
-gt     =  { ">" }
-ge     =  { ">=" }
-lt     =  { "<" }
-le     =  { "<=" }
-ne     =  { "<>" }
-eq     =  { "=" }
-and    =  { "&" }
-or     =  { "|" }
-exp    =  { atom ~ ((add | sub | mul | div | ge | gt | ne | le | lt | eq | and | or) ~ atom)* }
+nil     =  { "nil" }
+seq     =  { "(" ~ (exp ~ (";" ~ exp)*)? ~ ")" }
+int     = @{ ASCII_DIGIT+ }
+funcall =  { ident ~ "(" ~ (exp ~ ("," ~ exp)*)? ~ ")" }
+rec     =  { ident ~ "{" ~ (ident ~ "=" ~ exp ~ ("," ~ ident ~ "=" ~ exp)*)? ~ "}" }
+array   =  { ident ~ "[" ~ exp ~ "]" ~ "of" ~ exp }
+assign  =  { lvalue ~ ":=" ~ exp }
+if      =  { "if" ~ exp ~ "then" ~ exp ~ ("else" ~ exp)? }
+while   =  { "while" ~ exp ~ "do" ~ exp }
+for     =  { "for" ~ ident ~ ":=" ~ exp ~ "to" ~ exp ~ "do" ~ exp }
+break   =  { "break" }
+let     =  { "let" ~ decs ~ "in" ~ letseq ~ "end" }
+letseq  =  { (exp ~ (";" ~ exp)*)? }
+atom    = _{ (minus ~ exp) | nil | seq | int | string | if | while | for | break | let | funcall | rec | array | assign | lvalue }
+minus   =  { "-" }
+add     =  { "+" }
+sub     =  { "-" }
+mul     =  { "*" }
+div     =  { "/" }
+gt      =  { ">" }
+ge      =  { ">=" }
+lt      =  { "<" }
+le      =  { "<=" }
+ne      =  { "<>" }
+eq      =  { "=" }
+and     =  { "&" }
+or      =  { "|" }
+exp     =  { atom ~ ((add | sub | mul | div | ge | gt | ne | le | lt | eq | and | or) ~ atom)* }
 
 main = { SOI ~ exp ~ EOI }
 

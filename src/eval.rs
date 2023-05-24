@@ -13,7 +13,7 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-pub enum Fn<'a> {
+pub enum Fun<'a> {
     Print,
     Flush,
     Getchar,
@@ -68,42 +68,44 @@ impl<'a> WithPos<Value<'a>> {
 
 struct Interpreter<'a> {
     venv: Env<'a, Value<'a>>,
-    fenv: Env<'a, Fn<'a>>,
+    fenv: Env<'a, Fun<'a>>,
 }
 
 impl<'a> Interpreter<'a> {
     fn new() -> Self {
         let venv = Env::new();
         let mut fenv = Env::new();
-        fenv.insert("print", Fn::Print);
-        fenv.insert("flush", Fn::Flush);
-        fenv.insert("getchar", Fn::Getchar);
-        fenv.insert("ord", Fn::Ord);
-        fenv.insert("chr", Fn::Chr);
-        fenv.insert("size", Fn::Size);
-        fenv.insert("substring", Fn::Substring);
-        fenv.insert("concat", Fn::Concat);
-        fenv.insert("not", Fn::Not);
-        fenv.insert("exit", Fn::Exit);
+        fenv.insert("print", Fun::Print);
+        fenv.insert("flush", Fun::Flush);
+        fenv.insert("getchar", Fun::Getchar);
+        fenv.insert("ord", Fun::Ord);
+        fenv.insert("chr", Fun::Chr);
+        fenv.insert("size", Fun::Size);
+        fenv.insert("substring", Fun::Substring);
+        fenv.insert("concat", Fun::Concat);
+        fenv.insert("not", Fun::Not);
+        fenv.insert("exit", Fun::Exit);
         Self { venv, fenv }
     }
 
     fn eval_lvalue(&mut self, lvalue: &Lvalue<'a>) -> Result<&mut Value<'a>, Error> {
         match lvalue {
             Lvalue::Var(var) => Ok(self.venv.get_mut(var).unwrap()),
-            Lvalue::Rec(var, field) => match &mut *self.eval_lvalue(var)? {
+            Lvalue::Rec(lvalue, field) => match &mut *self.eval_lvalue(lvalue)? {
                 Value::Rec(fields) => Ok(unsafe { Rc::get_mut_unchecked(fields) }
                     .get_mut(**field)
                     .unwrap()),
                 Value::Nil => Err(Error::DerefNilStruct(field.pos)),
                 _ => unreachable!(),
             },
-            Lvalue::Idx(var, index) => {
+            Lvalue::Idx(lvalue, index) => {
                 let i = self.eval_with_pos(index)?.as_index()?;
-                match &mut *self.eval_lvalue(var)? {
-                    Value::Array(arr) => Ok(unsafe { Rc::get_mut_unchecked(arr) }
-                        .get_mut(i)
-                        .ok_or_else(|| Error::IndexOutOfRange(index.with_inner(i)))?),
+                match &mut *self.eval_lvalue(lvalue)? {
+                    Value::Array(array) => {
+                        Ok(unsafe { Rc::get_mut_unchecked(array) }
+                            .get_mut(i)
+                            .ok_or_else(|| Error::IndexOutOfRange(index.with_inner(i)))?)
+                    }
                     Value::Nil => Err(Error::DerefNilArray(index.pos)),
                     _ => unreachable!(),
                 }
@@ -114,16 +116,16 @@ impl<'a> Interpreter<'a> {
     fn eval_vardec(&mut self, decs: &Vec<Dec<'a>>) -> Result<(), Error> {
         for dec in decs {
             match dec {
-                Dec::VarDec { name, val, .. } => {
-                    let val = self.eval(val)?;
-                    self.venv.insert(name, val);
+                Dec::VarDec { name, expr, .. } => {
+                    let value = self.eval(expr)?;
+                    self.venv.insert(name, value);
                 }
-                Dec::FnDec {
+                Dec::FunDec {
                     name, fields, body, ..
                 } => {
                     self.fenv.insert(
                         name,
-                        Fn::Other {
+                        Fun::Other {
                             fields: fields.into_iter().map(|field| field.name).collect(),
                             body: body.clone(),
                         },
@@ -220,31 +222,31 @@ impl<'a> Interpreter<'a> {
             Expr::Break(_) => Err(Error::Break),
             Expr::Let(decs, expr) => {
                 self.eval_vardec(decs)?;
-                let val = self.eval(expr);
+                let value = self.eval(expr);
                 for dec in decs {
                     match dec {
                         Dec::VarDec { name, .. } => self.venv.remove(name),
-                        Dec::FnDec { name, .. } => self.fenv.remove(name),
+                        Dec::FunDec { name, .. } => self.fenv.remove(name),
                         Dec::TyDec { .. } => (),
                     };
                 }
-                val
+                value
             }
-            Expr::FnCall { name, args } => {
-                let val = self.fenv.get(name).unwrap().clone();
+            Expr::FunCall { name, args } => {
+                let value = self.fenv.get(name).unwrap().clone();
                 let mut args = args.iter();
-                match val {
-                    Fn::Print => {
+                match value {
+                    Fun::Print => {
                         print!("{}", self.eval(args.next().unwrap())?.as_string());
                         Ok(Value::Void)
                     }
-                    Fn::Flush => {
+                    Fun::Flush => {
                         std::io::stdout()
                             .flush()
                             .map_err(|error| Error::IOError(name.with_inner(error)))?;
                         Ok(Value::Void)
                     }
-                    Fn::Getchar => {
+                    Fun::Getchar => {
                         let mut buf = [0u8];
                         Ok(Value::String(
                             if std::io::stdin()
@@ -258,7 +260,7 @@ impl<'a> Interpreter<'a> {
                             },
                         ))
                     }
-                    Fn::Ord => Ok(Value::Integer(
+                    Fun::Ord => Ok(Value::Integer(
                         self.eval(args.next().unwrap())?
                             .as_string()
                             .bytes()
@@ -266,52 +268,52 @@ impl<'a> Interpreter<'a> {
                             .map(isize::from)
                             .unwrap_or(-1),
                     )),
-                    Fn::Chr => Ok(Value::String(Cow::Owned(String::from(char::from(
+                    Fun::Chr => Ok(Value::String(Cow::Owned(String::from(char::from(
                         u8::try_from(self.eval(args.next().unwrap())?.as_int())
                             .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
                     ))))),
-                    Fn::Size => Ok(Value::Integer(
+                    Fun::Size => Ok(Value::Integer(
                         self.eval(args.next().unwrap())?
                             .as_string()
                             .len()
                             .try_into()
                             .map_err(|error| Error::TryFromIntError(name.with_inner(error)))?,
                     )),
-                    Fn::Substring => {
+                    Fun::Substring => {
                         let s = self.eval(args.next().unwrap())?.as_string();
                         let first = self.eval_with_pos(args.next().unwrap())?.as_index()?;
                         let n = self.eval_with_pos(args.next().unwrap())?.as_index()?;
                         Ok(Value::String(Cow::Owned((&s[first..first + n]).into())))
                     }
-                    Fn::Concat => {
+                    Fun::Concat => {
                         let mut s1 = self.eval(args.next().unwrap())?.as_string().to_string();
                         let s2 = self.eval(args.next().unwrap())?.as_string();
                         s1.push_str(&s2);
                         Ok(Value::String(Cow::Owned(s1)))
                     }
-                    Fn::Not => Ok(Value::Integer(
+                    Fun::Not => Ok(Value::Integer(
                         (self.eval(args.next().unwrap())?.as_int() == 0) as isize,
                     )),
-                    Fn::Exit => {
+                    Fun::Exit => {
                         std::process::exit(self.eval(args.next().unwrap())?.as_int() as i32)
                     }
-                    Fn::Other { fields, body } => {
+                    Fun::Other { fields, body } => {
                         for (field, arg) in fields.iter().zip(args) {
-                            let arg = self.eval(arg)?;
-                            self.venv.insert(field, arg);
+                            let value = self.eval(arg)?;
+                            self.venv.insert(field, value);
                         }
-                        let ret = self.eval(&body)?;
+                        let ret = self.eval(&body);
                         for name in fields.iter() {
                             self.venv.remove(name);
                         }
-                        Ok(ret)
+                        ret
                     }
                 }
             }
             Expr::Rec { fields, .. } => {
                 let mut rec = HashMap::new();
-                for (field, val) in fields {
-                    rec.insert(field.inner, self.eval(val)?);
+                for (field, expr) in fields {
+                    rec.insert(**field, self.eval(expr)?);
                 }
                 Ok(Value::Rec(Rc::new(rec)))
             }

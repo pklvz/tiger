@@ -68,9 +68,9 @@ pub enum Dec<'a> {
     VarDec {
         name: WithPos<&'a str>,
         ty: Option<WithPos<&'a str>>,
-        val: Box<WithPos<Expr<'a>>>,
+        expr: Box<WithPos<Expr<'a>>>,
     },
-    FnDec {
+    FunDec {
         name: &'a str,
         fields: Vec<Field<'a>>,
         retty: Option<WithPos<&'a str>>,
@@ -123,7 +123,7 @@ pub enum Expr<'a> {
     For(&'a str, Box<WithPos<Self>>, Box<WithPos<Self>>, Box<Self>),
     Break(Pos),
     Let(Vec<Dec<'a>>, Box<Self>),
-    FnCall {
+    FunCall {
         name: WithPos<&'a str>,
         args: Vec<WithPos<Self>>,
     },

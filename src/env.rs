@@ -11,14 +11,14 @@ impl<'a, T> Env<'a, T> {
         Self(HashMap::new())
     }
 
-    pub fn insert(&mut self, name: &'a str, val: T) {
-        self.0.entry(name).or_default().push_front(val);
+    pub fn insert(&mut self, name: &'a str, value: T) {
+        self.0.entry(name).or_default().push_front(value);
     }
 
     pub fn remove(&mut self, name: &str) {
-        let vals = self.0.get_mut(name).unwrap();
-        vals.pop_front().unwrap();
-        if vals.is_empty() {
+        let values = self.0.get_mut(name).unwrap();
+        values.pop_front().unwrap();
+        if values.is_empty() {
             self.0.remove(name);
         }
     }
@@ -30,11 +30,13 @@ impl<'a, T> Env<'a, T> {
     {
         self.0
             .get(name.inner.borrow())
-            .map(|vals| vals.front().unwrap())
+            .map(|values| values.front().unwrap())
             .ok_or_else(|| Error::NotDefined(name.into()))
     }
 
     pub fn get_mut(&mut self, name: &str) -> Option<&mut T> {
-        self.0.get_mut(name).map(|vals| vals.front_mut().unwrap())
+        self.0
+            .get_mut(name)
+            .map(|values| values.front_mut().unwrap())
     }
 }

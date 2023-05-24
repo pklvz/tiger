@@ -49,7 +49,7 @@ pub(crate) fn parse_lvalue(pair: Pair<Rule>) -> Result<Lvalue, Error> {
         let var = WithPos { inner: lvalue, pos }.into();
         lvalue = match suffix.as_rule() {
             Rule::lvaluefield => Lvalue::Rec(var, suffix.into_inner().next().unwrap().into()),
-            Rule::lvalueidx => Lvalue::Idx(var, suffix.into_inner().next().unwrap().try_into()?),
+            Rule::lvalueindex => Lvalue::Idx(var, suffix.into_inner().next().unwrap().try_into()?),
             _ => unreachable!(),
         };
     }
@@ -127,8 +127,8 @@ pub(crate) fn parse_expr(pair: Pair<Rule>) -> Result<Expr, Error> {
                         _ => unreachable!(),
                     } as char),
                     Rule::decimal => string.push(pair.as_str()[1..].parse::<u8>().unwrap() as char),
-                    Rule::quote => string.push('"'),
-                    Rule::escape => string.push('\\'),
+                    Rule::quotmark => string.push('"'),
+                    Rule::backslash => string.push('\\'),
                     Rule::ignore => (),
                     Rule::char => {
                         escape = false;
@@ -144,9 +144,9 @@ pub(crate) fn parse_expr(pair: Pair<Rule>) -> Result<Expr, Error> {
                 Cow::Borrowed(s)
             }))
         }
-        Rule::fncall => {
+        Rule::funcall => {
             let mut pairs = pair.into_inner();
-            Ok(Expr::FnCall {
+            Ok(Expr::FunCall {
                 name: pairs.next().unwrap().into(),
                 args: pairs.map(|pair| pair.try_into()).try_collect()?,
             })
@@ -244,12 +244,12 @@ pub(crate) fn parse_expr(pair: Pair<Rule>) -> Result<Expr, Error> {
                             Rule::ident => Dec::VarDec {
                                 name,
                                 ty: Some(pair.into()),
-                                val: pairs.next().unwrap().try_into()?,
+                                expr: pairs.next().unwrap().try_into()?,
                             },
                             Rule::exp => Dec::VarDec {
                                 name,
                                 ty: None,
-                                val: pair.try_into()?,
+                                expr: pair.try_into()?,
                             },
                             _ => unreachable!(),
                         }
@@ -260,13 +260,13 @@ pub(crate) fn parse_expr(pair: Pair<Rule>) -> Result<Expr, Error> {
                         let fields = parse_fields(pairs.next().unwrap());
                         let pair = pairs.next().unwrap();
                         match pair.as_rule() {
-                            Rule::ident => Dec::FnDec {
+                            Rule::ident => Dec::FunDec {
                                 name,
                                 fields,
                                 retty: Some(pair.into()),
                                 body: pairs.next().unwrap().try_into()?,
                             },
-                            Rule::exp => Dec::FnDec {
+                            Rule::exp => Dec::FunDec {
                                 name,
                                 fields,
                                 retty: None,
