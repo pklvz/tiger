@@ -197,7 +197,7 @@ pub(crate) fn parse_expr(pair: Pair<Rule>) -> Result<Expr, Error> {
         Rule::r#for => {
             let mut pairs = pair.into_inner();
             Ok(Expr::For(
-                pairs.next().unwrap().as_str().into(),
+                pairs.next().unwrap().as_str(),
                 pairs.next().unwrap().try_into()?,
                 pairs.next().unwrap().try_into()?,
                 parse_expr(pairs.next().unwrap())?.into(),

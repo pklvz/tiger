@@ -9,7 +9,7 @@ use std::{
     ops::Deref,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub enum Op {
     Add,
     Sub,
@@ -46,20 +46,20 @@ impl Display for Op {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Field<'a> {
     pub name: &'a str,
     pub ty: WithPos<&'a str>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Type<'a> {
     Type(WithPos<&'a str>),
     Array(WithPos<&'a str>),
     Rec(Vec<Field<'a>>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Dec<'a> {
     TyDec {
         name: &'a str,
@@ -78,7 +78,7 @@ pub enum Dec<'a> {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Lvalue<'a> {
     Var(WithPos<&'a str>),
     Rec(Box<WithPos<Self>>, WithPos<&'a str>),
@@ -102,7 +102,7 @@ impl<'a> Display for Lvalue<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Expr<'a> {
     BinOp {
         lhs: Box<Self>,
@@ -140,7 +140,7 @@ pub enum Expr<'a> {
     Lvalue(WithPos<Lvalue<'a>>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Pos(usize, usize);
 
 impl From<(usize, usize)> for Pos {
@@ -204,7 +204,7 @@ impl<'a> From<Pair<'a, Rule>> for WithPos<&'a str> {
     fn from(value: Pair<'a, Rule>) -> Self {
         WithPos {
             pos: value.line_col().into(),
-            inner: value.as_str().into(),
+            inner: value.as_str(),
         }
     }
 }

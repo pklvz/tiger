@@ -3,7 +3,6 @@ use crate::{
     env::Env,
     error::Error,
 };
-use anyhow::Result;
 use std::{
     collections::{HashMap, HashSet},
     fmt::{Debug, Display},
@@ -58,7 +57,7 @@ impl WithPos<RcType> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Type {
     Unknown(WithPos<String>),
     Void,
@@ -256,13 +255,10 @@ impl<'a> Checker<'a> {
                             found.expect(expected)?;
                             self.venv.insert(name, expected.clone());
                         }
-                        _ => {
-                            if *found.inner == Type::Nil {
-                                return Err(Error::UnknownType(name.into()));
-                            } else {
-                                self.venv.insert(name, found.inner);
-                            }
-                        }
+                        _ => match **found {
+                            Type::Nil => return Err(Error::UnknownType(name.into())),
+                            _ => self.venv.insert(name, found.inner),
+                        },
                     }
                 }
                 Dec::FnDec {
@@ -302,8 +298,8 @@ impl<'a> Checker<'a> {
             } = dec
             {
                 for field in fields {
-                    self.venv
-                        .insert(field.name, self.tenv.get(&field.ty)?.clone());
+                    let val = self.tenv.get(&field.ty)?.clone();
+                    self.venv.insert(field.name, val);
                 }
                 self.resolve_with_pos(body, false)?.expect(match retty {
                     Some(retty) => self.tenv.get(retty)?,

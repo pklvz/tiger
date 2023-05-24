@@ -3,7 +3,6 @@ use crate::{
     env::Env,
     error::Error,
 };
-use anyhow::Result;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -13,7 +12,7 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Fn<'a> {
     Print,
     Flush,
@@ -127,8 +126,7 @@ impl<'a> Interpreter<'a> {
                         Fn::Other {
                             fields: fields.into_iter().map(|field| field.name).collect(),
                             body: body.clone(),
-                        }
-                        .into(),
+                        },
                     );
                 }
                 _ => (),
@@ -156,37 +154,18 @@ impl<'a> Interpreter<'a> {
                         (Value::String(lhs), Value::String(rhs), Op::Ge) => (lhs >= rhs) as isize,
                         (Value::String(lhs), Value::String(rhs), Op::Lt) => (lhs < rhs) as isize,
                         (Value::String(lhs), Value::String(rhs), Op::Le) => (lhs <= rhs) as isize,
-                        (Value::String(lhs), Value::String(rhs), Op::Ne) => (lhs != rhs) as isize,
-                        (Value::String(lhs), Value::String(rhs), Op::Eq) => (lhs == rhs) as isize,
 
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Gt) => (lhs > rhs) as isize,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Ge) => (lhs >= rhs) as isize,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Lt) => (lhs < rhs) as isize,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Le) => (lhs <= rhs) as isize,
-                        (Value::Integer(lhs), Value::Integer(rhs), Op::Ne) => (lhs != rhs) as isize,
-                        (Value::Integer(lhs), Value::Integer(rhs), Op::Eq) => (lhs == rhs) as isize,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Add) => lhs + rhs,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Sub) => lhs - rhs,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Mul) => lhs * rhs,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Div) => lhs / rhs,
 
-                        (Value::Array(lhs), Value::Array(rhs), Op::Ne) => (lhs != rhs) as isize,
-                        (Value::Array(lhs), Value::Array(rhs), Op::Eq) => (lhs == rhs) as isize,
-                        (Value::Array(_), Value::Nil, Op::Ne) => 1,
-                        (Value::Array(_), Value::Nil, Op::Eq) => 0,
-                        (Value::Nil, Value::Array(_), Op::Ne) => 1,
-                        (Value::Nil, Value::Array(_), Op::Eq) => 0,
-
-                        (Value::Rec(lhs), Value::Rec(rhs), Op::Ne) => (lhs != rhs) as isize,
-                        (Value::Rec(lhs), Value::Rec(rhs), Op::Eq) => (lhs == rhs) as isize,
-                        (Value::Rec(_), Value::Nil, Op::Ne) => 1,
-                        (Value::Rec(_), Value::Nil, Op::Eq) => 0,
-                        (Value::Nil, Value::Rec(_), Op::Ne) => 1,
-                        (Value::Nil, Value::Rec(_), Op::Eq) => 0,
-
-                        (Value::Nil, Value::Nil, Op::Ne) => 0,
-                        (Value::Nil, Value::Nil, Op::Eq) => 1,
-
+                        (lhs, rhs, Op::Eq) => (lhs == rhs) as isize,
+                        (lhs, rhs, Op::Ne) => (lhs != rhs) as isize,
                         _ => unreachable!(),
                     }
                 }
