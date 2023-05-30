@@ -139,7 +139,11 @@ impl<'a> Interpreter<'a> {
 
     fn eval(&mut self, expr: &Expr<'a>) -> Result<Value<'a>, Error> {
         match expr {
-            Expr::BinOp { lhs, rhs, op } => Ok(Value::Integer(match &**op {
+            Expr::BinOp {
+                lhs,
+                rhs,
+                op: WithPos { inner: op, pos },
+            } => Ok(Value::Integer(match op {
                 Op::And => match self.eval(lhs)?.as_int() {
                     0 => 0,
                     _ => (self.eval(rhs)?.as_int() != 0) as isize,
@@ -164,7 +168,12 @@ impl<'a> Interpreter<'a> {
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Add) => lhs + rhs,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Sub) => lhs - rhs,
                         (Value::Integer(lhs), Value::Integer(rhs), Op::Mul) => lhs * rhs,
-                        (Value::Integer(lhs), Value::Integer(rhs), Op::Div) => lhs / rhs,
+                        (Value::Integer(lhs), Value::Integer(rhs), Op::Div) => {
+                            if rhs == 0 {
+                                return Err(Error::DivideByZero(*pos));
+                            }
+                            lhs / rhs
+                        }
 
                         (lhs, rhs, Op::Eq) => (lhs == rhs) as isize,
                         (lhs, rhs, Op::Ne) => (lhs != rhs) as isize,

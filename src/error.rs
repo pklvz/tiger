@@ -46,6 +46,8 @@ pub enum Error {
     #[error("{}, break outside loop", .0)]
     BreakOutsideLoop(Pos),
 
+    #[error("{}, divide by zero", .0)]
+    DivideByZero(Pos),
     #[error("{}, nil struct dereference", .0)]
     DerefNilStruct(Pos),
     #[error("{}, nil array dereference", .0)]
