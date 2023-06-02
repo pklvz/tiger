@@ -34,7 +34,7 @@ mod tests {
     }
 
     fn test_sample(file_name: &str) -> Result<(), Error> {
-        let src = fs::read_to_string(["samples", file_name].iter().collect::<PathBuf>()).unwrap();
+        let src = fs::read_to_string(["testcases", file_name].iter().collect::<PathBuf>()).unwrap();
         test_src(file_name, &src)
     }
 
@@ -96,7 +96,7 @@ mod tests {
 
     #[bench]
     fn bench_samples(b: &mut Bencher) -> anyhow::Result<()> {
-        let samples: Vec<_> = fs::read_dir("samples")?.into_iter().try_collect()?;
+        let samples: Vec<_> = fs::read_dir("testcases")?.into_iter().try_collect()?;
         let samples: Vec<_> = samples
             .iter()
             .map(|sample| sample.file_name().into_string().unwrap())

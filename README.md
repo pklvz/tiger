@@ -4,4 +4,4 @@
 
 ## Deviations
 
-- No consecutive batches ([test17.tig](/samples/test17.tig), [test18.tig](/samples/test18.tig), [test38.tig](/samples/test38.tig) and [test39.tig](/samples/test39.tig) are legal).
+- No consecutive batches ([test17.tig](/testcases/test17.tig), [test18.tig](/testcases/test18.tig), [test38.tig](/testcases/test38.tig) and [test39.tig](/testcases/test39.tig) are legal).
