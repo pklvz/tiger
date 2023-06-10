@@ -26,7 +26,7 @@ pub enum Fun<'a> {
     Exit,
     Other {
         fields: Vec<&'a str>,
-        body: Box<WithPos<Expr<'a>>>,
+        body: Rc<WithPos<Expr<'a>>>,
     },
 }
 

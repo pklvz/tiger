@@ -7,6 +7,7 @@ use std::{
     borrow::{Borrow, Cow},
     fmt::Display,
     ops::Deref,
+    rc::Rc,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -74,7 +75,7 @@ pub enum Dec<'a> {
         name: &'a str,
         fields: Vec<Field<'a>>,
         retty: Option<WithPos<&'a str>>,
-        body: Box<WithPos<Expr<'a>>>,
+        body: Rc<WithPos<Expr<'a>>>,
     },
 }
 

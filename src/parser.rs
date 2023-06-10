@@ -3,7 +3,7 @@ use crate::{
     error::Error,
 };
 use pest::{iterators::Pair, pratt_parser::PrattParser, Parser};
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
 #[derive(Parser)]
 #[grammar = "tiger.pest"]
@@ -264,13 +264,13 @@ pub(crate) fn parse_expr(pair: Pair<Rule>) -> Result<Expr, Error> {
                                 name,
                                 fields,
                                 retty: Some(pair.into()),
-                                body: pairs.next().unwrap().try_into()?,
+                                body: Rc::new(pairs.next().unwrap().try_into()?),
                             },
                             Rule::exp => Dec::FunDec {
                                 name,
                                 fields,
                                 retty: None,
-                                body: pair.try_into()?,
+                                body: Rc::new(pair.try_into()?),
                             },
                             _ => unreachable!(),
                         }
