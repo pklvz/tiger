@@ -34,9 +34,14 @@ impl<'a, T> Env<'a, T> {
             .ok_or_else(|| Error::NotDefined(name.into()))
     }
 
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut T> {
+    pub fn get_mut<'b, K>(&mut self, name: &'b WithPos<K>) -> Result<&mut T, Error>
+    where
+        K: Borrow<str>,
+        &'b WithPos<K>: Into<WithPos<String>>,
+    {
         self.0
-            .get_mut(name)
+            .get_mut(name.inner.borrow())
             .map(|values| values.front_mut().unwrap())
+            .ok_or_else(|| Error::NotDefined(name.into()))
     }
 }
