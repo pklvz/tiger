@@ -59,8 +59,13 @@ impl<'a> Value<'a> {
 impl<'a> WithPos<Value<'a>> {
     fn as_index(self) -> Result<usize, Error> {
         match *self {
-            Value::Integer(int) if int >= 0 => Ok(int as usize),
-            Value::Integer(int) => Err(Error::NegtiveIndex(self.with_inner(int))),
+            Value::Integer(int) => {
+                if int >= 0 {
+                    Ok(int as usize)
+                } else {
+                    Err(Error::NegtiveIndex(self.with_inner(int)))
+                }
+            }
             _ => unreachable!(),
         }
     }
